@@ -3,6 +3,7 @@
 import "./globals.css";
 import { ThemeProvider, SidebarProvider, SidebarInset } from "@kognitos/lattice";
 import { ChatProvider } from "@/lib/chat/chat-context";
+import { AppSidebar } from "./app-sidebar";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,8 +11,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider defaultTheme="light">
           <ChatProvider>
-            <SidebarProvider>
-              {/* Add your <AppSidebar /> component here */}
+            <SidebarProvider open={true}>
+              <AppSidebar />
               <SidebarInset>{children}</SidebarInset>
             </SidebarProvider>
           </ChatProvider>
