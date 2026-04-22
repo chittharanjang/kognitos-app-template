@@ -18,7 +18,7 @@ import {
 const NAV_ITEMS = [
   { href: "/query", label: "Query", icon: "Search" as const },
   { href: "/automations", label: "Automations", icon: "Blocks" as const },
-  { href: "/chat", label: "Chat", icon: "MessageSquare" as const },
+  { href: "/guide", label: "User Guide", icon: "BookOpen" as const },
 ];
 
 export function AppSidebar() {

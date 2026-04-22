@@ -81,14 +81,40 @@ const HELP_SECTIONS = [
 
 const POLL_INTERVAL = 2000;
 const POLL_TIMEOUT = 120_000;
+const STORAGE_KEY = "query-assistant-history";
+
+function loadPersistedEntries(): ChatEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function persistEntries(entries: ChatEntry[]) {
+  try {
+    const settled = entries.filter((e) => !e.loading);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settled));
+  } catch {
+    /* quota exceeded or unavailable — silently ignore */
+  }
+}
 
 export default function QueryPage() {
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [entries, setEntries] = useState<ChatEntry[]>(() => loadPersistedEntries());
   const [input, setInput] = useState("");
   const [showHelp, setShowHelp] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pollingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    persistEntries(entries);
+  }, [entries]);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -217,6 +243,11 @@ export default function QueryPage() {
     }
   };
 
+  const clearHistory = useCallback(() => {
+    setEntries([]);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  }, []);
+
   const activeCount = entries.filter((e) => e.loading).length;
   const showEmpty = entries.length === 0;
 
@@ -237,14 +268,25 @@ export default function QueryPage() {
               Ask questions about your client data — powered by SQL Query Generator
             </Text>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowHelp(!showHelp)}
-            className="shrink-0"
-          >
-            <Icon type="CircleHelp" size="sm" />
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            {entries.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={clearHistory}
+                title="Clear history"
+              >
+                <Icon type="Trash" size="sm" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowHelp(!showHelp)}
+            >
+              <Icon type="CircleHelp" size="sm" />
+            </Button>
+          </div>
         </div>
 
         {showHelp && (
