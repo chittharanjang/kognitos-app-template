@@ -19,4 +19,5 @@ export const supabaseAdmin = url && serviceKey ? createClient(url, serviceKey) :
 export const TABLES = {
   sessions: "chat_sessions",
   messages: "chat_messages",
+  queryHistory: "query_history",
 } as const;

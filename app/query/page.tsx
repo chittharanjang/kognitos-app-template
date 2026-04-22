@@ -81,40 +81,34 @@ const HELP_SECTIONS = [
 
 const POLL_INTERVAL = 2000;
 const POLL_TIMEOUT = 120_000;
-const STORAGE_KEY = "query-assistant-history";
 
-function loadPersistedEntries(): ChatEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-function persistEntries(entries: ChatEntry[]) {
-  try {
-    const settled = entries.filter((e) => !e.loading);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settled));
-  } catch {
-    /* quota exceeded or unavailable — silently ignore */
-  }
+function persistEntry(entry: ChatEntry) {
+  const status = entry.error ? "failed" : entry.result ? "completed" : "loading";
+  fetch("/api/query/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...entry, status }),
+  }).catch(() => {});
 }
 
 export default function QueryPage() {
-  const [entries, setEntries] = useState<ChatEntry[]>(() => loadPersistedEntries());
+  const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [showHelp, setShowHelp] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pollingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    persistEntries(entries);
-  }, [entries]);
+    fetch("/api/query/history")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.entries)) setEntries(data.entries);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -122,9 +116,14 @@ export default function QueryPage() {
 
   const updateEntry = useCallback(
     (entryId: string, updates: Partial<ChatEntry>) => {
-      setEntries((prev) =>
-        prev.map((e) => (e.id === entryId ? { ...e, ...updates } : e)),
-      );
+      setEntries((prev) => {
+        const next = prev.map((e) =>
+          e.id === entryId ? { ...e, ...updates } : e,
+        );
+        const updated = next.find((e) => e.id === entryId);
+        if (updated && !updated.loading) persistEntry(updated);
+        return next;
+      });
     },
     [],
   );
@@ -204,6 +203,7 @@ export default function QueryPage() {
       };
 
       setEntries((prev) => [...prev, newEntry]);
+      persistEntry(newEntry);
       scrollToBottom();
       inputRef.current?.focus();
 
@@ -245,11 +245,11 @@ export default function QueryPage() {
 
   const clearHistory = useCallback(() => {
     setEntries([]);
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    fetch("/api/query/history", { method: "DELETE" }).catch(() => {});
   }, []);
 
   const activeCount = entries.filter((e) => e.loading).length;
-  const showEmpty = entries.length === 0;
+  const showEmpty = !isLoading && entries.length === 0;
 
   return (
     <div className="flex flex-col h-[calc(100vh-1rem)]">
