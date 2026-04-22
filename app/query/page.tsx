@@ -253,10 +253,11 @@ export default function QueryPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-1rem)]">
-      <div className="p-4 border-b border-border shrink-0">
-        <div className="flex items-start justify-between">
+      {/* ── Header ── */}
+      <div className="px-5 py-3 shadow-sm shrink-0 bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <Title level="h3">Query Assistant</Title>
               {activeCount > 0 && (
                 <Badge variant="secondary">
@@ -290,7 +291,7 @@ export default function QueryPage() {
         </div>
 
         {showHelp && (
-          <div className="mt-3 rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+          <div className="mt-3 rounded-xl border border-border bg-muted/30 p-4 space-y-4">
             {HELP_SECTIONS.map((section) => (
               <div key={section.title}>
                 <Text level="small" className="font-semibold">
@@ -318,22 +319,25 @@ export default function QueryPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* ── Chat area — capped at ~75% viewport ── */}
+      <div className="flex-1 min-h-0 max-h-[calc(75vh-4rem)] overflow-y-auto px-5 py-4 space-y-4">
         {showEmpty ? (
           <div className="flex flex-col items-center justify-center h-full gap-6">
             <div className="text-center">
-              <Icon type="Search" size="xl" className="text-muted-foreground mb-3 mx-auto" />
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                <Icon type="Search" size="lg" className="text-primary" />
+              </div>
               <Title level="h3">Ask a question</Title>
-              <Text color="muted" className="mt-1">
+              <Text color="muted" className="mt-1.5">
                 Type a natural language query about your client and account data.
               </Text>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-lg">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   onClick={() => handleSubmit(s)}
-                  className="text-left text-sm p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                  className="text-left text-sm px-4 py-3 rounded-xl border border-border bg-background shadow-sm hover:shadow-md hover:border-primary/30 hover:bg-muted/40 transition-all duration-150"
                 >
                   {s}
                 </button>
@@ -345,7 +349,7 @@ export default function QueryPage() {
             {entries.map((entry) => (
               <div key={entry.id} className="space-y-3">
                 <div className="flex justify-end">
-                  <div className="max-w-[80%] rounded-lg px-4 py-3 bg-primary text-primary-foreground">
+                  <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-primary text-primary-foreground shadow-sm">
                     <Text level="small" className="text-primary-foreground">
                       {entry.query}
                     </Text>
@@ -373,7 +377,8 @@ export default function QueryPage() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-4 border-t border-border shrink-0">
+      {/* ── Bottom section: input + suggestions ── */}
+      <div className="shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-5 pt-3 pb-4 space-y-3">
         <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
@@ -382,16 +387,31 @@ export default function QueryPage() {
             onKeyDown={handleKeyDown}
             placeholder="Ask a question about your data..."
             rows={1}
-            className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-2.5 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-shadow"
           />
           <Button
             size="icon"
             onClick={() => handleSubmit()}
             disabled={!input.trim()}
+            className="rounded-xl h-10 w-10"
           >
             <Icon type="SendHorizontal" size="sm" />
           </Button>
         </div>
+
+        {!showEmpty && (
+          <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSubmit(s)}
+                className="shrink-0 text-xs px-3.5 py-1.5 rounded-full border border-border bg-background shadow-sm hover:shadow-md hover:border-primary/30 hover:bg-muted/40 transition-all duration-150 text-muted-foreground hover:text-foreground"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -420,17 +440,17 @@ function LoadingIndicator({ entry }: { entry: ChatEntry }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted space-y-2">
-        <div className="flex items-center gap-2">
+      <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-muted/60 shadow-sm">
+        <div className="flex items-center gap-2.5">
           <div className="flex gap-1">
-            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0ms]" />
-            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:150ms]" />
-            <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:300ms]" />
+            <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce [animation-delay:0ms]" />
+            <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce [animation-delay:150ms]" />
+            <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce [animation-delay:300ms]" />
           </div>
           <Text level="xSmall" color="muted">
             {phase}
           </Text>
-          <Text level="xSmall" color="muted" className="ml-auto font-mono">
+          <Text level="xSmall" color="muted" className="ml-auto font-mono tabular-nums">
             {seconds}s
           </Text>
         </div>
@@ -446,11 +466,11 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] w-full space-y-3">
-        <div className="rounded-lg px-4 py-3 bg-muted">
+        <div className="rounded-2xl px-4 py-3 bg-muted/50 shadow-sm">
           <Text level="small">{result.responseText ?? "No response text returned."}</Text>
         </div>
 
-        <div className="flex flex-wrap gap-2 px-1">
+        <div className="flex flex-wrap gap-1.5 px-1">
           {result.resultRowCount != null && (
             <Badge variant="secondary">
               {result.resultRowCount} row{result.resultRowCount !== 1 ? "s" : ""} scanned
@@ -477,7 +497,7 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
         {result.appliedWhereClauses &&
           result.appliedWhereClauses.length > 0 &&
           result.appliedWhereClauses[0] !== "(no filter)" && (
-            <div className="rounded-lg border border-border px-4 py-3 space-y-1">
+            <div className="rounded-xl border border-border px-4 py-3 space-y-1 shadow-sm">
               <Text level="xSmall" className="font-medium">
                 Applied Filters
               </Text>
@@ -490,10 +510,10 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
           )}
 
         {result.generatedSql && (
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
             <button
               onClick={() => setShowSql(!showSql)}
-              className="w-full flex items-center justify-between px-4 py-2 hover:bg-muted/50 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
             >
               <Text level="xSmall" className="font-medium">
                 Generated SQL
@@ -501,7 +521,7 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
               <Icon type={showSql ? "ChevronUp" : "ChevronDown"} size="sm" className="text-muted-foreground" />
             </button>
             {showSql && (
-              <div className="px-4 py-3 border-t border-border bg-muted/30">
+              <div className="px-4 py-3 border-t border-border bg-muted/20">
                 <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
                   {result.generatedSql}
                 </pre>
@@ -511,10 +531,10 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
         )}
 
         {result.tableData && result.tableData.length > 0 && (
-          <div className="rounded-lg border border-border overflow-hidden">
+          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
             <button
               onClick={() => setShowTable(!showTable)}
-              className="w-full flex items-center justify-between px-4 py-2 hover:bg-muted/50 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
             >
               <Text level="xSmall" className="font-medium">
                 Result Table ({result.tableData.length} row{result.tableData.length !== 1 ? "s" : ""})
@@ -525,7 +545,7 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
               <div className="border-t border-border overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-border bg-muted/50">
+                    <tr className="border-b border-border bg-muted/40">
                       {Object.keys(result.tableData[0]).map((col) => (
                         <th
                           key={col}
@@ -538,7 +558,7 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
                   </thead>
                   <tbody>
                     {result.tableData.map((row, i) => (
-                      <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/30">
+                      <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                         {Object.values(row).map((val, j) => (
                           <td key={j} className="px-3 py-2 whitespace-nowrap">
                             {val == null ? (

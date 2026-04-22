@@ -14,6 +14,7 @@ interface ChatContextValue {
   streamingContent: string;
   toolStatus: string | null;
   error: string | null;
+  followUpSuggestions: string[];
   createSession: () => Promise<string | null>;
   sendMessage: (content: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
@@ -37,7 +38,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [streamingContent, setStreamingContent] = useState("");
   const [toolStatus, setToolStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [followUpSuggestions, setFollowUpSuggestions] = useState<string[]>([]);
   const skipNextLoadRef = useRef(false);
+
+  useEffect(() => {
+    setFollowUpSuggestions([]);
+  }, [activeSessionId]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -121,6 +127,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setStreamingContent("");
       setToolStatus(null);
       setError(null);
+      setFollowUpSuggestions([]);
 
       try {
         const res = await fetch("/api/chat", {
@@ -129,8 +136,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ sessionId, message: content }),
         });
 
-        if (!res.ok || !res.body) {
-          setError(`Failed to send message (${res.status})`);
+        if (!res.ok) {
+          let detail = `Failed to send message (${res.status})`;
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (typeof data?.error === "string") detail = data.error;
+          } catch {
+            /* ignore */
+          }
+          setError(detail);
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+          setIsSending(false);
+          return;
+        }
+        if (!res.body) {
+          setError("No response from server");
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
           setIsSending(false);
           return;
         }
@@ -167,6 +188,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 setSessions((prev) =>
                   prev.map((s) => (s.id === sessionId ? { ...s, title } : s))
                 );
+              } else if (event.type === "suggestions") {
+                const items = event.items;
+                setFollowUpSuggestions(Array.isArray(items) ? (items as string[]) : []);
               } else if (event.type === "error") {
                 console.error("[chat] Server error:", event.content);
                 setError(event.content ?? "Something went wrong");
@@ -227,6 +251,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         streamingContent,
         toolStatus,
         error,
+        followUpSuggestions,
         createSession,
         sendMessage,
         deleteSession,

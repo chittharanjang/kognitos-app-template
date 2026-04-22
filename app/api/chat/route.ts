@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin, TABLES } from "@/lib/supabase";
 import { buildSystemPrompt } from "@/lib/chat/system-prompt";
+import { suggestQueriesFromGuide } from "@/lib/guide-queries";
 import { req, ORG_ID, WORKSPACE_ID, AUTOMATION_ID } from "@/lib/kognitos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+});
 
 /**
  * Registered tools for Claude. Customize these for your domain:
@@ -97,6 +100,56 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
   }
 }
 
+async function generateLlmFollowUps(lastUser: string, assistantSnippet: string): Promise<string[]> {
+  try {
+    const res = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 220,
+      messages: [
+        {
+          role: "user",
+          content:
+            `You assist users querying client/account databases (FIDO, WealthX, Profile Status linked by FIDUCIARY_ID).\n` +
+            `Suggest exactly 2 short follow-up questions they might ask next. Questions only.\n` +
+            `Output ONLY a JSON array of 2 strings, e.g. ["Question one?","Question two?"]\n\n` +
+            `User: ${lastUser.slice(0, 2500)}\n\nAssistant (excerpt): ${assistantSnippet.slice(0, 2000)}`,
+        },
+      ],
+    });
+    const block = res.content[0];
+    if (block.type !== "text") return [];
+    const match = block.text.trim().match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    const parsed = JSON.parse(match[0]) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      .map((s) => s.trim())
+      .slice(0, 2);
+  } catch {
+    return [];
+  }
+}
+
+function mergeSuggestionLists(
+  lastUser: string,
+  guidePart: string[],
+  llmPart: string[],
+  maxTotal: number
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const lastNorm = lastUser.trim().toLowerCase();
+  for (const q of [...guidePart, ...llmPart]) {
+    const k = q.trim().toLowerCase();
+    if (!k || seen.has(k) || k === lastNorm) continue;
+    seen.add(k);
+    out.push(q.trim());
+    if (out.length >= maxTotal) break;
+  }
+  return out;
+}
+
 async function generateTitle(userMessage: string, assistantMessage: string): Promise<string> {
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -118,6 +171,17 @@ export async function POST(request: Request) {
 
   if (!message || !sessionId) {
     return NextResponse.json({ error: "Missing sessionId or message" }, { status: 400 });
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error:
+          "Missing ANTHROPIC_API_KEY. Add your Anthropic API key to .env (see .env.example), then restart the dev server.",
+      },
+      { status: 503 }
+    );
   }
 
   if (supabaseAdmin) {
@@ -241,6 +305,13 @@ export async function POST(request: Request) {
               /* title generation is best-effort */
             }
           }
+        }
+
+        const guidePart = suggestQueriesFromGuide(message, fullAssistantResponse || "", 3);
+        const llmPart = await generateLlmFollowUps(message, fullAssistantResponse || "");
+        const combined = mergeSuggestionLists(message, guidePart, llmPart, 6);
+        if (combined.length > 0) {
+          send({ type: "suggestions", items: combined });
         }
 
         send({ type: "done" });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Title,
   Text,
@@ -10,16 +11,7 @@ import {
   Markdown,
 } from "@kognitos/lattice";
 import { useChatContext } from "@/lib/chat/chat-context";
-
-/**
- * Replace these with domain-specific questions that users are likely to ask.
- */
-const SUGGESTIONS = [
-  "How many runs completed successfully today?",
-  "Show me all runs that need review",
-  "What does this automation do?",
-  "Are there any failed runs I should look at?",
-];
+import { pickStarterSuggestions } from "@/lib/guide-queries";
 
 export default function ChatPage() {
   const {
@@ -31,8 +23,10 @@ export default function ChatPage() {
     error,
     sendMessage,
     activeSessionId,
+    followUpSuggestions,
   } = useChatContext();
 
+  const [starterSuggestions] = useState(() => pickStarterSuggestions(6));
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -83,12 +77,15 @@ export default function ChatPage() {
               <Icon type="MessageSquare" size="xl" className="text-muted-foreground mb-3 mx-auto" />
               <Title level="h3">Ask a question</Title>
               <Text color="muted" className="mt-1">
-                I can help you look up data, check processing status, and
-                answer questions about the automation.
+                Ask about clients, accounts, and profiles (FIDO, WealthX, Profile Status). Examples below are from the{" "}
+                <Link href="/guide" className="text-primary underline underline-offset-2 hover:no-underline">
+                  User Guide
+                </Link>
+                .
               </Text>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
-              {SUGGESTIONS.map((s) => (
+              {starterSuggestions.map((s) => (
                 <button
                   key={s}
                   onClick={() => handleSubmit(s)}
@@ -155,6 +152,34 @@ export default function ChatPage() {
               <div className="flex justify-start">
                 <div className="rounded-lg px-4 py-3 bg-destructive/10 border border-destructive/20">
                   <Text level="small" className="text-destructive">{error}</Text>
+                </div>
+              </div>
+            )}
+
+            {!isSending && followUpSuggestions.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-border mt-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Text level="xSmall" className="font-medium text-muted-foreground">
+                    Continue with
+                  </Text>
+                  <Link
+                    href="/guide"
+                    className="text-xs text-primary underline underline-offset-2 hover:no-underline shrink-0"
+                  >
+                    More in User Guide
+                  </Link>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {followUpSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSubmit(s)}
+                      className="text-left text-xs sm:text-sm px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors max-w-full"
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
