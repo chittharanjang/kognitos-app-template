@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { req, ORG_ID, WORKSPACE_ID, parseOutputValue } from "@/lib/kognitos";
 import { decodeArrowTable } from "@/lib/arrow";
-
-const AUTOMATION_ID = "7NMPU5tknPoocOFoLfRss";
+import { getSqlQueryGeneratorAutomationId } from "@/lib/query-assistant";
 
 export async function GET(
   _request: Request,
@@ -11,7 +10,7 @@ export async function GET(
   const { runId } = await params;
 
   const res = await req(
-    `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${AUTOMATION_ID}/runs/${runId}`,
+    `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${getSqlQueryGeneratorAutomationId()}/runs/${runId}`,
   );
 
   if (!res.ok) {

@@ -275,27 +275,81 @@ function tokenize(text: string): string[] {
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 }
 
-/** Random sample from the User Guide for empty-state starter chips. */
+/** Random sample from the User Guide (non-deterministic). */
 export function pickStarterSuggestions(count = 6): string[] {
   const all = QUERY_CATEGORIES.flatMap((c) => c.queries);
   return shuffleArray(all).slice(0, Math.min(count, all.length));
 }
 
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number) {
+  return function next() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Deterministic starter questions for a chat session: same `sessionSeed` always yields
+ * the same picks from the User Guide (until the pool changes in code).
+ */
+export function pickStarterSuggestionsForSession(sessionSeed: string, count = 4): string[] {
+  const all = QUERY_CATEGORIES.flatMap((c) => c.queries);
+  const rand = mulberry32(hashSeed(sessionSeed));
+  const n = all.length;
+  const indices = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const idx of indices) {
+    const q = all[idx].trim();
+    const k = q.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(q);
+    if (out.length >= count) break;
+  }
+  return out;
+}
+
+/** Normalize for deduping suggestions against prior user messages. */
+export function normalizeSuggestionKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function buildExcludeSetFromUserQuestions(questions: string[]): Set<string> {
+  return new Set(questions.map(normalizeSuggestionKey).filter(Boolean));
+}
+
 /**
  * Score User Guide categories against the last exchange and return up to `maxCount`
  * example queries from the best-matching category (or shuffled guide queries if no match).
+ * Skips any question whose normalized form appears in `excludeNormalized` (already asked).
  */
 export function suggestQueriesFromGuide(
   lastUser: string,
   assistantPreview: string,
-  maxCount: number
+  maxCount: number,
+  excludeNormalized?: Set<string>
 ): string[] {
+  const exclude = excludeNormalized ?? new Set<string>();
   const ctxWords = new Set([
     ...tokenize(lastUser),
     ...tokenize(assistantPreview.slice(0, 2000)),
   ]);
-
-  const normalizedUser = lastUser.trim().toLowerCase();
 
   let best: QueryCategory | null = null;
   let bestScore = -1;
@@ -318,23 +372,29 @@ export function suggestQueriesFromGuide(
     }
   }
 
-  let pool: string[];
-  if (!best || bestScore <= 0) {
-    pool = shuffleArray(QUERY_CATEGORIES.flatMap((c) => c.queries));
-  } else {
-    pool = shuffleArray(
-      best.queries.filter((q) => q.trim().toLowerCase() !== normalizedUser)
-    );
-  }
-
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const q of pool) {
-    const k = q.trim().toLowerCase();
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    out.push(q.trim());
-    if (out.length >= maxCount) break;
+
+  const tryTake = (pool: string[]) => {
+    for (const q of pool) {
+      const k = normalizeSuggestionKey(q);
+      if (!k || seen.has(k) || exclude.has(k)) continue;
+      seen.add(k);
+      out.push(q.trim());
+      if (out.length >= maxCount) break;
+    }
+  };
+
+  if (!best || bestScore <= 0) {
+    tryTake(shuffleArray(QUERY_CATEGORIES.flatMap((c) => c.queries)));
+  } else {
+    tryTake(shuffleArray(best.queries));
   }
+
+  if (out.length < maxCount) {
+    const all = shuffleArray(QUERY_CATEGORIES.flatMap((c) => c.queries));
+    tryTake(all);
+  }
+
   return out;
 }

@@ -1,107 +1,36 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin, TABLES } from "@/lib/supabase";
-import { buildSystemPrompt } from "@/lib/chat/system-prompt";
-import { suggestQueriesFromGuide } from "@/lib/guide-queries";
-import { req, ORG_ID, WORKSPACE_ID, AUTOMATION_ID } from "@/lib/kognitos";
+import {
+  suggestQueriesFromGuide,
+  buildExcludeSetFromUserQuestions,
+  normalizeSuggestionKey,
+} from "@/lib/guide-queries";
+import { runQueryAssistant, chunkTextForStream } from "@/lib/query-assistant";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/** SQL Query Assistant runs can take several minutes. */
+export const maxDuration = 300;
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? "",
 });
 
-/**
- * Registered tools for Claude. Customize these for your domain:
- * - Update descriptions to use domain language
- * - Add domain-specific tools that call your data-fetching functions
- * - Remove tools that don't apply to your automation
- */
-const TOOLS: Anthropic.Tool[] = [
-  {
-    name: "list_runs",
-    description:
-      "List recent automation runs with their statuses and dates. Returns up to 50 runs.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: "get_run",
-    description:
-      "Get full details of a specific run by its ID, including all outputs and status information.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        run_id: { type: "string", description: "The run ID to retrieve" },
-      },
-      required: ["run_id"],
-    },
-  },
-  {
-    name: "get_automation",
-    description:
-      "Get details about the automation, including its code, connections, and description.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: [],
-    },
-  },
-];
-
-/**
- * Execute a tool call. Customize the handlers for your domain:
- * - list_runs: call your domain-specific data-fetching function
- * - get_run: call your domain-specific detail-fetching function
- * - Add cases for any new tools you define above
- */
-async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
-  switch (name) {
-    case "list_runs": {
-      const res = await req(
-        `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${AUTOMATION_ID}/runs?pageSize=50`
-      );
-      if (!res.ok) return `Error: ${res.status}`;
-      const data = await res.json();
-      return JSON.stringify(data.runs ?? [], null, 2);
-    }
-    case "get_run": {
-      const runId = input.run_id as string;
-      const res = await req(
-        `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${AUTOMATION_ID}/runs/${runId}`
-      );
-      if (!res.ok) return `Error: ${res.status}`;
-      const data = await res.json();
-      return JSON.stringify(data, null, 2);
-    }
-    case "get_automation": {
-      const res = await req(
-        `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${AUTOMATION_ID}`
-      );
-      if (!res.ok) return `Error: ${res.status}`;
-      const data = await res.json();
-      return JSON.stringify(
-        {
-          display_name: data.display_name,
-          description: data.description,
-          english_code: data.english_code?.slice(0, 3000),
-          connections: data.connections,
-        },
-        null,
-        2
-      );
-    }
-    default:
-      return `Unknown tool: ${name}`;
-  }
-}
-
-async function generateLlmFollowUps(lastUser: string, assistantSnippet: string): Promise<string[]> {
+async function generateLlmFollowUps(
+  lastUser: string,
+  assistantSnippet: string,
+  priorQuestions: string[],
+  excludeNormalized: Set<string>
+): Promise<string[]> {
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) return [];
   try {
+    const blocked =
+      priorQuestions.length > 0
+        ? priorQuestions
+            .slice(-25)
+            .map((q) => `- ${q.slice(0, 220)}`)
+            .join("\n")
+        : "(none)";
     const res = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 220,
@@ -110,9 +39,13 @@ async function generateLlmFollowUps(lastUser: string, assistantSnippet: string):
           role: "user",
           content:
             `You assist users querying client/account databases (FIDO, WealthX, Profile Status linked by FIDUCIARY_ID).\n` +
-            `Suggest exactly 2 short follow-up questions they might ask next. Questions only.\n` +
+            `Suggest exactly 2 short NEW follow-up questions they might ask next.\n` +
+            `Do not repeat or paraphrase questions already listed below.\n` +
+            `Questions only.\n` +
             `Output ONLY a JSON array of 2 strings, e.g. ["Question one?","Question two?"]\n\n` +
-            `User: ${lastUser.slice(0, 2500)}\n\nAssistant (excerpt): ${assistantSnippet.slice(0, 2000)}`,
+            `Already asked in this conversation:\n${blocked}\n\n` +
+            `Latest user message: ${lastUser.slice(0, 2500)}\n\n` +
+            `Assistant (excerpt): ${assistantSnippet.slice(0, 2000)}`,
         },
       ],
     });
@@ -125,6 +58,7 @@ async function generateLlmFollowUps(lastUser: string, assistantSnippet: string):
     return parsed
       .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
       .map((s) => s.trim())
+      .filter((s) => !excludeNormalized.has(normalizeSuggestionKey(s)))
       .slice(0, 2);
   } catch {
     return [];
@@ -132,17 +66,16 @@ async function generateLlmFollowUps(lastUser: string, assistantSnippet: string):
 }
 
 function mergeSuggestionLists(
-  lastUser: string,
   guidePart: string[],
   llmPart: string[],
+  excludeNormalized: Set<string>,
   maxTotal: number
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  const lastNorm = lastUser.trim().toLowerCase();
   for (const q of [...guidePart, ...llmPart]) {
-    const k = q.trim().toLowerCase();
-    if (!k || seen.has(k) || k === lastNorm) continue;
+    const k = normalizeSuggestionKey(q);
+    if (!k || seen.has(k) || excludeNormalized.has(k)) continue;
     seen.add(k);
     out.push(q.trim());
     if (out.length >= maxTotal) break;
@@ -150,7 +83,25 @@ function mergeSuggestionLists(
   return out;
 }
 
-async function generateTitle(userMessage: string, assistantMessage: string): Promise<string> {
+async function getSessionUserQuestions(sessionId: string): Promise<string[]> {
+  if (!supabaseAdmin) return [];
+  const { data } = await supabaseAdmin
+    .from(TABLES.messages)
+    .select("content")
+    .eq("session_id", sessionId)
+    .eq("role", "user")
+    .order("created_at", { ascending: true });
+  return (data ?? [])
+    .map((row) => String((row as { content: unknown }).content ?? "").trim())
+    .filter(Boolean);
+}
+
+async function generateSessionTitle(userMessage: string, assistantMessage: string): Promise<string> {
+  const k = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!k) {
+    const t = userMessage.replace(/\n/g, " ").trim();
+    return t.length <= 48 ? t : `${t.slice(0, 45)}…`;
+  }
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 30,
@@ -173,48 +124,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing sessionId or message" }, { status: 400 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "Missing ANTHROPIC_API_KEY. Add your Anthropic API key to .env (see .env.example), then restart the dev server.",
-      },
-      { status: 503 }
-    );
-  }
-
   if (supabaseAdmin) {
     await supabaseAdmin
       .from(TABLES.messages)
       .insert({ session_id: sessionId, role: "user", content: message });
-  }
-
-  const systemPrompt = await buildSystemPrompt();
-
-  let existingMessages: Anthropic.MessageParam[] = [];
-  if (supabaseAdmin) {
-    const { data: dbMessages } = await supabaseAdmin
-      .from(TABLES.messages)
-      .select("role, content")
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: true });
-    if (dbMessages) {
-      const filtered = dbMessages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-      for (const msg of filtered) {
-        const last = existingMessages[existingMessages.length - 1];
-        if (last && last.role === msg.role) {
-          last.content = last.content + "\n\n" + msg.content;
-        } else {
-          existingMessages.push(msg);
-        }
-      }
-    }
-  } else {
-    existingMessages = [{ role: "user", content: message }];
   }
 
   const encoder = new TextEncoder();
@@ -231,54 +144,39 @@ export async function POST(request: Request) {
       };
 
       try {
-        let messages = [...existingMessages];
         let fullAssistantResponse = "";
 
-        for (let iteration = 0; iteration < 5; iteration++) {
-          if (iteration > 0 && fullAssistantResponse.length > 0) {
-            fullAssistantResponse += "\n\n";
-            send({ type: "text", content: "\n\n" });
-          }
+        send({
+          type: "tool_use",
+          tool_name: "query_assistant",
+          tool_input: { question: message.slice(0, 200) },
+        });
 
-          const stream = anthropic.messages.stream({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 4096,
-            system: systemPrompt,
-            tools: TOOLS,
-            messages,
-          });
+        /** Same as Query page: invoke Kognitos automation "SQL Query Generator" with `User Query` = chat text; block until result. */
+        const outcome = await runQueryAssistant(message);
 
-          stream.on("text", (text) => {
-            fullAssistantResponse += text;
-            send({ type: "text", content: text });
-          });
+        send({
+          type: "tool_result",
+          tool_name: "query_assistant",
+          content: outcome.ok
+            ? `Run ${outcome.runId.slice(0, 8)}… completed`
+            : (outcome.error || "Failed").slice(0, 180),
+        });
 
-          const finalMessage = await stream.finalMessage();
+        if (!outcome.ok) {
+          fullAssistantResponse =
+            "**Query Assistant** could not complete this question.\n\n" +
+            `**Error:** ${outcome.error}\n\n` +
+            (outcome.runId
+              ? `_Run ID: \`${outcome.runId}\` (you can inspect this run in Kognitos or use the **Query** page to retry)._\n\n`
+              : "") +
+            "_Tip: rephrase the question, or run it from **Query** for the full 2-minute timeout UI._";
+        } else {
+          fullAssistantResponse = outcome.content;
+        }
 
-          const toolBlocks = finalMessage.content.filter(
-            (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
-          );
-
-          if (toolBlocks.length === 0) break;
-
-          const toolResults: Anthropic.ToolResultBlockParam[] = [];
-          for (const block of toolBlocks) {
-            send({ type: "tool_use", tool_name: block.name, tool_input: block.input });
-            let result: string;
-            try {
-              result = await executeTool(block.name, block.input as Record<string, unknown>);
-            } catch (e) {
-              result = `Tool error: ${e instanceof Error ? e.message : "Unknown error"}`;
-            }
-            send({ type: "tool_result", tool_name: block.name, content: result.slice(0, 200) + "..." });
-            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
-          }
-
-          messages = [
-            ...messages,
-            { role: "assistant", content: finalMessage.content },
-            { role: "user", content: toolResults },
-          ];
+        for (const chunk of chunkTextForStream(fullAssistantResponse, 500)) {
+          send({ type: "text", content: chunk });
         }
 
         if (supabaseAdmin) {
@@ -295,7 +193,7 @@ export async function POST(request: Request) {
 
           if (count && count <= 3) {
             try {
-              const title = await generateTitle(message, fullAssistantResponse);
+              const title = await generateSessionTitle(message, fullAssistantResponse);
               await supabaseAdmin
                 .from(TABLES.sessions)
                 .update({ title, updated_at: new Date().toISOString() })
@@ -307,9 +205,25 @@ export async function POST(request: Request) {
           }
         }
 
-        const guidePart = suggestQueriesFromGuide(message, fullAssistantResponse || "", 3);
-        const llmPart = await generateLlmFollowUps(message, fullAssistantResponse || "");
-        const combined = mergeSuggestionLists(message, guidePart, llmPart, 6);
+        let priorQuestions = await getSessionUserQuestions(sessionId);
+        if (priorQuestions.length === 0 && message.trim()) {
+          priorQuestions = [message.trim()];
+        }
+        const excludeNormalized = buildExcludeSetFromUserQuestions(priorQuestions);
+
+        const guidePart = suggestQueriesFromGuide(
+          message,
+          fullAssistantResponse || "",
+          10,
+          excludeNormalized
+        );
+        const llmPart = await generateLlmFollowUps(
+          message,
+          fullAssistantResponse || "",
+          priorQuestions,
+          excludeNormalized
+        );
+        const combined = mergeSuggestionLists(guidePart, llmPart, excludeNormalized, 6);
         if (combined.length > 0) {
           send({ type: "suggestions", items: combined });
         }
@@ -319,7 +233,7 @@ export async function POST(request: Request) {
         console.error("[chat] Stream error:", err);
         try {
           send({ type: "error", content: err instanceof Error ? err.message : "Unknown error" });
-        } catch { /* controller may be closed */ }
+        } catch { /* closed */ }
       } finally {
         controller.close();
       }

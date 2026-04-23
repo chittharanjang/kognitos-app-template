@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { invokeAutomation } from "@/lib/kognitos";
-
-const AUTOMATION_ID = "7NMPU5tknPoocOFoLfRss";
+import { getSqlQueryGeneratorAutomationId, QUERY_ASSISTANT_STAGE } from "@/lib/query-assistant";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -12,9 +11,9 @@ export async function POST(request: Request) {
   }
 
   const { runId, error: invokeError } = await invokeAutomation(
-    AUTOMATION_ID,
+    getSqlQueryGeneratorAutomationId(),
     { "User Query": { text: query.trim() } },
-    "AUTOMATION_STAGE_DRAFT",
+    QUERY_ASSISTANT_STAGE,
   );
 
   if (!runId) {

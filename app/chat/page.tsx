@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Title,
@@ -11,7 +11,7 @@ import {
   Markdown,
 } from "@kognitos/lattice";
 import { useChatContext } from "@/lib/chat/chat-context";
-import { pickStarterSuggestions } from "@/lib/guide-queries";
+import { pickStarterSuggestionsForSession } from "@/lib/guide-queries";
 
 export default function ChatPage() {
   const {
@@ -26,10 +26,21 @@ export default function ChatPage() {
     followUpSuggestions,
   } = useChatContext();
 
-  const [starterSuggestions] = useState(() => pickStarterSuggestions(6));
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /** Seed for starter chips before a Supabase session id exists; rotates when user opens a fresh chat. */
+  const [draftSessionSeed, setDraftSessionSeed] = useState(
+    () => `draft-${typeof crypto !== "undefined" ? crypto.randomUUID() : String(Date.now())}`
+  );
+  const prevSessionRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (prevSessionRef.current !== undefined && prevSessionRef.current !== null && activeSessionId === null) {
+      setDraftSessionSeed(`draft-${crypto.randomUUID()}`);
+    }
+    prevSessionRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,12 +66,22 @@ export default function ChatPage() {
 
   const showEmpty = !activeSessionId || (messages.length === 0 && !isLoadingMessages && !isSending);
 
+  const sessionSeed = activeSessionId ?? draftSessionSeed;
+  const sessionStarterChips = useMemo(
+    () => pickStarterSuggestionsForSession(sessionSeed, 4),
+    [sessionSeed]
+  );
+
+  const showFooterSuggestionChips =
+    showEmpty || (!isSending && messages.length > 0 && followUpSuggestions.length > 0);
+  const footerSuggestionChips = showEmpty ? sessionStarterChips : followUpSuggestions;
+
   return (
     <div className="flex flex-col h-[calc(100vh-1rem)]">
       <div className="p-4 border-b border-border shrink-0">
         <Title level="h3">Chat</Title>
         <Text level="xSmall" color="muted">
-          Ask questions about your data, runs, and automation status
+          Each message runs the same SQL Query Assistant as the Query page; results can take up to a few minutes
         </Text>
       </div>
 
@@ -77,23 +98,12 @@ export default function ChatPage() {
               <Icon type="MessageSquare" size="xl" className="text-muted-foreground mb-3 mx-auto" />
               <Title level="h3">Ask a question</Title>
               <Text color="muted" className="mt-1">
-                Ask about clients, accounts, and profiles (FIDO, WealthX, Profile Status). Examples below are from the{" "}
+                Ask about clients, accounts, and profiles (FIDO, WealthX, Profile Status). Suggested questions below the input are from the{" "}
                 <Link href="/guide" className="text-primary underline underline-offset-2 hover:no-underline">
                   User Guide
-                </Link>
-                .
+                </Link>{" "}
+                and stay consistent for this chat session.
               </Text>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
-              {starterSuggestions.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSubmit(s)}
-                  className="text-left text-sm p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
             </div>
           </div>
         ) : (
@@ -156,46 +166,19 @@ export default function ChatPage() {
               </div>
             )}
 
-            {!isSending && followUpSuggestions.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-border mt-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <Text level="xSmall" className="font-medium text-muted-foreground">
-                    Continue with
-                  </Text>
-                  <Link
-                    href="/guide"
-                    className="text-xs text-primary underline underline-offset-2 hover:no-underline shrink-0"
-                  >
-                    More in User Guide
-                  </Link>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {followUpSuggestions.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handleSubmit(s)}
-                      className="text-left text-xs sm:text-sm px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors max-w-full"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 border-t border-border shrink-0">
+      <div className="p-4 border-t border-border shrink-0 space-y-3">
         <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question..."
+            placeholder="Ask a question about your data..."
             rows={1}
             className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
@@ -207,6 +190,30 @@ export default function ChatPage() {
             <Icon type="SendHorizontal" size="sm" />
           </Button>
         </div>
+        {showFooterSuggestionChips && (
+          <div className="flex flex-wrap items-start gap-2">
+            <div className="flex flex-wrap gap-2 flex-1 min-w-0">
+              {footerSuggestionChips.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => handleSubmit(s)}
+                  className="text-left text-xs sm:text-sm px-3 py-2 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors max-w-full sm:max-w-[calc(50%-0.25rem)]"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {!showEmpty && (
+              <Link
+                href="/guide"
+                className="text-xs text-primary underline underline-offset-2 hover:no-underline shrink-0 pt-2"
+              >
+                User Guide
+              </Link>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
