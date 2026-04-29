@@ -20,4 +20,11 @@ export const TABLES = {
   sessions: "chat_sessions",
   messages: "chat_messages",
   queryHistory: "query_history",
+  // Source-of-truth mirrors loaded from Snowflake / Azure SQL via the SQL
+  // Query Generator automation. See supabase/migrations/00000000000003_source_data.sql.
+  fidoClients: "fido_clients",
+  fidoClientAddress: "fido_client_address",
+  wealthxAccountDetails: "wealthx_account_details",
+  azureProfileStatus: "azure_profile_status",
+  sourceLoadRuns: "source_load_runs",
 } as const;

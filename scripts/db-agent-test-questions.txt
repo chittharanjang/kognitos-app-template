@@ -1,0 +1,266 @@
+# DB Agent — Test Questions
+#
+# Source: app/guide (User Guide page) → lib/guide-queries.ts
+# 18 categories, 100 queries. Keep this file in sync with the User Guide.
+#
+# Lines starting with `#` are comments. Blank lines separate groups.
+# Each non-comment line is one question prefixed by its tag:
+#   [TAG] question text
+#
+# Run individually:
+#   npx tsx scripts/invoke-amaagent.ts "<question>"
+#
+# Batch-run (example):
+#   while IFS= read -r line; do
+#     [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+#     tag="${line%%]*}]"; q="${line#*] }"
+#     echo "=== $tag ==="; npx tsx scripts/invoke-amaagent.ts "$q"
+#   done < scripts/db-agent-test-questions.txt
+#
+# Tag legend:
+#   YN     Yes/No (Single DB)              YNX    Yes/No (Cross-DB)
+#   DSI    Direct Specific Information     COL    Specific Column Requests
+#   LIST   Full Table / List / File        FIDO   Single DB - FIDO
+#   B3     Single DB - WealthX             PS     Single DB - Profile Status
+#   J2     Cross-DB Joins (Two DBs)        B4     Cross-DB Joins (Three DBs)
+#   IRA    IRA Account Type Handling       MULTI  Multi-Question Emails
+#   AMB    Ambiguous / Poorly Structured   PARA   Long Paragraph Queries
+#   NDF    No Data Found Scenarios         GOV    Data Governance / Security
+#   Q      Composite / Complex Business    N      Aggregation / Count
+
+# ─────────────────────────────────────────────────────────────────────
+# 1. Yes/No Questions (Single DB) — FIDO, Profile Status
+# Concise Yes/No answer in email body. No file attachment.
+# ─────────────────────────────────────────────────────────────────────
+
+[YN1] Is John registered in the system?
+[YN2] Are there any clients in the database?
+[YN3] Is F1005 a valid unregistered client?
+[YN4] Is Sarah's profile currently active?
+[YN5] Does the client with FIDUCIARY_ID F1010 exist?
+[YN6] Is there any client with a locked profile?
+[YN7] Are there any deactivated profiles in the system?
+
+# ─────────────────────────────────────────────────────────────────────
+# 2. Yes/No Questions (Cross-DB) — FIDO + WealthX + Profile Status
+# Concise Yes/No requiring joins across databases.
+# ─────────────────────────────────────────────────────────────────────
+
+[YNX-1] Does John have any open accounts?
+[YNX-2] Is the client F1005 an active client with an IRA account?
+[YNX-3] Are there any clients with active profiles and Roth IRA accounts?
+[YNX-4] Does Sarah have both an active profile and an open account?
+[YNX-5] Is there any unregistered client who holds an Estate account?
+
+# ─────────────────────────────────────────────────────────────────────
+# 3. Direct Specific Information
+# Return only the requested value. No extra columns. No attachment.
+# ─────────────────────────────────────────────────────────────────────
+
+[DSI-1] What is John's email ID?
+[DSI-2] Give me Sarah's phone number.
+[DSI-3] What is the SSN of client F1005?
+[DSI-4] What is the date of birth of client John Smith?
+[DSI-5] What is the postal code for client F1010?
+[DSI-6] What is the profile status of client F1005?
+[DSI-7] What is the account number of John's account?
+
+# ─────────────────────────────────────────────────────────────────────
+# 4. Specific Column Requests — FIDO
+# Return only requested columns. Exclude restricted columns
+# (e.g., ONLINE_PORTAL_ACCESS) unless explicitly asked.
+# ─────────────────────────────────────────────────────────────────────
+
+[COL-1] Share client details with phone number and email.
+[COL-2] Give me first name, last name, and SSN for all clients.
+[COL-3] Show me the name and email of all clients.
+[COL-4] List all clients with their first name, last name, and date of birth.
+[COL-5] Give me client names and their postal codes.
+[COL-6] Show me client names, phone numbers, and online portal access status.
+
+# ─────────────────────────────────────────────────────────────────────
+# 5. Full Table / List / File Requests — FIDO + WealthX
+# Generate CSV file attachment for large datasets. Use safe default
+# columns if user doesn't specify. Exclude ONLINE_PORTAL_ACCESS unless
+# explicitly requested.
+# ─────────────────────────────────────────────────────────────────────
+
+[LIST-1] Give me the list of all unregistered users.
+[LIST-2] Share the file of registered clients.
+[LIST-3] Export client data.
+[LIST-4] Give me a list of all clients.
+[LIST-5] Export all client details to a file.
+[LIST-6] Share the complete list of clients with their account details.
+
+# ─────────────────────────────────────────────────────────────────────
+# 6. Single DB Queries — FIDO
+# Query only the FIDO database (client personal/contact info).
+# ─────────────────────────────────────────────────────────────────────
+
+[FIDO-1] Show me all clients whose last name is Smith.
+[FIDO-2] List all clients born before 1990.
+[FIDO-3] Give me the list of clients who have online portal access.
+[FIDO-4] How many clients are in the system?
+[FIDO-5] Show me clients from postal code 10001.
+[FIDO-6] List all client email addresses.
+
+# ─────────────────────────────────────────────────────────────────────
+# 7. Single DB Queries — WealthX
+# Query only the WealthX database (account/financial info).
+# Tests: open/closed account filters, account-type filter (IRA, Roth IRA,
+# Estate), distinct-values composer, universal FID defense (F1005),
+# count label builder (includes column_filters terms).
+# ─────────────────────────────────────────────────────────────────────
+
+[B3-1] Show me all open accounts.
+[B3-2] How many IRA accounts are there?
+[B3-3] List all accounts of type Roth IRA.
+[B3-4] Give me the count of closed accounts.
+[B3-5] Show all account types available in the system.
+[B3-6] List all accounts for client F1005.
+[B3-7] How many Estate accounts are currently open?
+
+# ─────────────────────────────────────────────────────────────────────
+# 8. Single DB Queries — Profile Status (Azure SQL)
+# ─────────────────────────────────────────────────────────────────────
+
+[PS-1] How many active profiles are there?
+[PS-2] List all clients with locked profiles.
+[PS-3] Show me all deactivated users.
+[PS-4] What is the distribution of profile statuses?
+[PS-5] Give me the count of profiles by status.
+
+# ─────────────────────────────────────────────────────────────────────
+# 9. Cross-Database Joins (Two DBs)
+# Dynamically join two databases using FIDUCIARY_ID.
+# ─────────────────────────────────────────────────────────────────────
+
+[J2-1] Show clients with active accounts and their contact details.
+[J2-2] Give me the list of active clients who have IRA accounts.
+[J2-3] List all clients with their profile status and email.
+[J2-4] Show me clients with open accounts and their phone numbers.
+[J2-5] Give me clients with locked profiles and their account details.
+
+# ─────────────────────────────────────────────────────────────────────
+# 10. Cross-Database Joins (Three DBs)
+# Tests: FIDO + WealthX + MSSQL joins, profile_status row-filter,
+# contact-details defense, column-name canonicalization
+# (PROFILE_STATUS_ID → profile_status), column-header dedup,
+# intersection-filter scope guard (account_type only).
+# ─────────────────────────────────────────────────────────────────────
+
+[B4-1] Give me the list of active users who have open accounts along with their contact details.
+[B4-2] Show clients with active profiles, IRA accounts, and their email addresses.
+[B4-3] List all clients with their profile status, account types, and contact information.
+[B4-4] Give me clients who have deactivated profiles but still have open accounts, along with their email and phone.
+
+# ─────────────────────────────────────────────────────────────────────
+# 11. IRA Account Type Handling
+# Generic "IRA" returns all IRA variants. An exact type like "Roth IRA"
+# returns only that type.
+# ─────────────────────────────────────────────────────────────────────
+
+[IRA-1] Give me the list of clients who have IRA accounts.
+[IRA-2] List clients with Roth IRA accounts.
+[IRA-3] Show me all clients with Traditional IRA accounts.
+[IRA-4] Give me clients with Inherited Roth IRA accounts.
+[IRA-5] How many clients have IRA accounts?
+[IRA-6] How many clients have Roth IRA accounts specifically?
+
+# ─────────────────────────────────────────────────────────────────────
+# 12. Multiple Questions in Single Email
+# Break into separate logical parts, process independently, respond in
+# structured numbered sections.
+# ─────────────────────────────────────────────────────────────────────
+
+[MULTI-1] Is John registered? Also give me his email ID.
+[MULTI-2] How many active clients are there? And can you share the list of clients with Roth IRA accounts?
+[MULTI-3] What is Sarah's phone number? Is her profile active? Does she have any open accounts?
+[MULTI-4] Give me the count of all clients. Also, list all clients with locked profiles. And export all active client data to a file.
+[MULTI-5] Is F1005 a valid client? What accounts does F1005 hold? What is F1005's profile status?
+[MULTI-6] Are there any unregistered clients? If yes, give me their names and email addresses.
+
+# ─────────────────────────────────────────────────────────────────────
+# 13. Ambiguous / Poorly Structured Queries
+# The system must infer intent from unclear or informal input.
+# ─────────────────────────────────────────────────────────────────────
+
+[AMB-1] john email?
+[AMB-2] clients with ira
+[AMB-3] anyone locked out?
+[AMB-4] all data for F1005
+[AMB-5] tell me about sarah
+[AMB-6] who has roth
+[AMB-7] active ones with accounts
+[AMB-8] give me everything
+[AMB-9] unregistered + ira
+[AMB-10] whats johns status
+
+# ─────────────────────────────────────────────────────────────────────
+# 14. Long Paragraph Queries
+# Parse intent from a verbose paragraph.
+# ─────────────────────────────────────────────────────────────────────
+
+[PARA-1] Hi, I need to check if we have a client named John Smith in our system, and if so, could you please share his email address and phone number? Also, I'd like to know if his profile is active or not. Thanks.
+[PARA-2] I was wondering if you could pull up the list of all our clients who currently have IRA accounts and are still active in the system. If possible, please include their names and email addresses in the response.
+[PARA-3] We are doing an audit and need to verify all clients whose profiles are currently locked. Please share their details including name, email, account numbers and account types.
+
+# ─────────────────────────────────────────────────────────────────────
+# 15. No Data Found Scenarios
+# Respond professionally: "No records were found based on the provided
+# criteria." Never leave blank, never expose SQL errors.
+# ─────────────────────────────────────────────────────────────────────
+
+[NDF-1] Show me clients with the last name "Xyzzynotexist".
+[NDF-2] Is there a client with FIDUCIARY_ID F9999?
+[NDF-3] List all clients with account type "Crypto Wallet".
+[NDF-4] Give me details for client "NonexistentPerson".
+
+# ─────────────────────────────────────────────────────────────────────
+# 16. Data Governance / Security Edge Cases
+# Exclude ONLINE_PORTAL_ACCESS unless explicitly requested. Never expose
+# schema names or SQL.
+# ─────────────────────────────────────────────────────────────────────
+
+[GOV-1] Give me all details for client John.
+[GOV-2] Export all client information.
+[GOV-3] Show me client John's online portal access status.
+[GOV-4] Share client details including their online portal access.
+
+# ─────────────────────────────────────────────────────────────────────
+# 17. Composite / Complex Business Queries
+# Sample queries from the POC document.
+# Tests: active-status filter, account-type recognition, sub-question
+# merging, BOTH-X-AND-Y intersection logic.
+# ─────────────────────────────────────────────────────────────────────
+
+[Q1] Show clients with active accounts and contact details.
+[Q2] Give me the list of active clients who have IRA accounts.
+[Q3] Give me the list of active users who have open accounts.
+[Q4] Give me the list of unregistered clients who have IRA accounts.
+[Q5] Give me the list of clients who have both open IRA accounts and Investment accounts.
+
+# ─────────────────────────────────────────────────────────────────────
+# 18. Aggregation / Count Queries
+# Tests: count-only responses, count-with-threshold (>1 account),
+# breakdown/group-by composer branch.
+# Caveat: N1 reports total clients with a transparency note since
+# `registration` is not exposed by FIDO.
+# ─────────────────────────────────────────────────────────────────────
+
+[N1] How many clients are registered in the system?
+[N2] What is the total number of open accounts?
+[N3] How many clients have more than one account?
+[N4] What is the breakdown of account types across all clients?
+
+# ─────────────────────────────────────────────────────────────────────
+# Known platform limitations (NOT bugs in DB Agent)
+# ─────────────────────────────────────────────────────────────────────
+#
+#   - market_value: not returned by the Kognitos WealthX book procedure
+#     in use. Queries like "What is the market value of F1006?" cannot
+#     be answered until a procedure that exposes the column is added.
+#
+#   - registration status: FIDO does not expose a `registration` column.
+#     Filters on registration are treated as no-ops; the response
+#     includes a transparency note.
