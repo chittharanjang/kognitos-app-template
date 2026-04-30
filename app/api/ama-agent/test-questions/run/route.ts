@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { invokeAutomation } from "@/lib/kognitos";
-import { getAmaAgentAutomationId, AMA_AGENT_STAGE } from "@/lib/ama-agent";
+import { getAmaAgentAutomationId } from "@/lib/ama-agent";
 import { supabaseAdmin, TABLES } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,11 @@ export const maxDuration = 60;
 const DEFAULT_CONCURRENCY = 25;
 const MAX_CONCURRENCY = 50;
 const REQUESTER_EMAIL = "ama-runs-test@kognitos-demo.local";
+
+// The Test button always exercises the production stage so results match
+// what real users would see, regardless of any in-progress draft work on the
+// DB Agent automation. The chat (/ama-agent) keeps using its own stage.
+const TEST_BUTTON_STAGE = "AUTOMATION_STAGE_PUBLISHED" as const;
 
 interface RunStarted {
   question: string;
@@ -31,7 +36,7 @@ async function startOne(
   const { runId, error } = await invokeAutomation(
     automationId,
     inputs,
-    AMA_AGENT_STAGE,
+    TEST_BUTTON_STAGE,
   );
   if (!runId) return { error: error ?? "Failed to start run" };
   return { runId };
@@ -91,6 +96,7 @@ export async function POST(request: Request) {
       total: 0,
       started: 0,
       failed: 0,
+      stage: TEST_BUTTON_STAGE,
       runs: [],
       errors: [],
     });
@@ -124,6 +130,7 @@ export async function POST(request: Request) {
     total: questions.length,
     started: started.length,
     failed: failed.length,
+    stage: TEST_BUTTON_STAGE,
     runs: started,
     errors: failed,
   });

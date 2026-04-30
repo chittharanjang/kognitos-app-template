@@ -65,6 +65,7 @@ interface TestRunResult {
   total: number;
   started: number;
   failed: number;
+  stage: string | null;
 }
 
 interface LoadResult {
@@ -220,6 +221,7 @@ export default function RunsHistoryPage(): React.ReactElement {
         total: data.total ?? 0,
         started: data.started ?? 0,
         failed: data.failed ?? 0,
+        stage: data.stage ?? null,
       });
       setConfirmOpen(false);
       // Refresh runs immediately, then once more after a few seconds so the
@@ -347,6 +349,15 @@ export default function RunsHistoryPage(): React.ReactElement {
           <AlertTitle>Test batch started</AlertTitle>
           <AlertDescription>
             Kicked off {lastTestResult.started} of {lastTestResult.total} runs
+            against the{" "}
+            <strong>
+              {lastTestResult.stage === "AUTOMATION_STAGE_PUBLISHED"
+                ? "published"
+                : lastTestResult.stage
+                    ?.replace(/^AUTOMATION_STAGE_/, "")
+                    .toLowerCase() ?? "configured"}
+            </strong>{" "}
+            stage of DB Agent
             {lastTestResult.failed > 0
               ? ` (${lastTestResult.failed} failed to start)`
               : ""}
@@ -576,8 +587,9 @@ function ConfirmTestDialog({
             <Title level="h4">Run all stored test questions?</Title>
             <Text level="small" color="muted" className="mt-1">
               {count} question{count === 1 ? "" : "s"} from the local library
-              will be sent to DB Agent in parallel (concurrency 25). New runs
-              will appear in this list as they start.
+              will be sent to the <strong>published</strong> DB Agent in
+              parallel (concurrency 25). New runs will appear in this list as
+              they start.
             </Text>
           </div>
         </div>

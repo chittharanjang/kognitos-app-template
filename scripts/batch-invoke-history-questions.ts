@@ -19,7 +19,12 @@
 
 import "dotenv/config";
 import { req, ORG_ID, WORKSPACE_ID, invokeAutomation } from "../lib/kognitos";
-import { getAmaAgentAutomationId, AMA_AGENT_STAGE } from "../lib/ama-agent";
+import { getAmaAgentAutomationId } from "../lib/ama-agent";
+
+// Match the in-app Test button: always exercise the production stage so the
+// batch results reflect what real users would see, regardless of any
+// in-progress draft work on the DB Agent automation.
+const TEST_BATCH_STAGE = "AUTOMATION_STAGE_PUBLISHED" as const;
 
 interface Args {
   concurrency: number;
@@ -122,7 +127,7 @@ async function invokeOne(automationId: string, question: string): Promise<Invoke
     "User Query": { text: question },
     "Requester Email": { text: "ama-batch-test@kognitos-demo.local" },
   };
-  const { runId, error } = await invokeAutomation(automationId, inputs, AMA_AGENT_STAGE);
+  const { runId, error } = await invokeAutomation(automationId, inputs, TEST_BATCH_STAGE);
   return {
     question,
     runId: runId ?? null,
@@ -170,6 +175,7 @@ async function main(): Promise<void> {
 
   console.log(`DB Agent batch invoke (history-driven)`);
   console.log(`  automationId: ${automationId}`);
+  console.log(`  stage:        ${TEST_BATCH_STAGE}`);
   console.log(`  concurrency:  ${args.concurrency}`);
   console.log(`  maxRuns:      ${args.maxRuns}`);
   console.log(`  pageSize:     ${args.pageSize}`);
