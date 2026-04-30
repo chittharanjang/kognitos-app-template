@@ -33,14 +33,17 @@ type NavItem = {
     | "Blocks"
     | "Database"
     | "BookOpen"
-    | "FlaskConical";
+    | "FlaskConical"
+    | "History";
+  exact?: boolean;
 };
 
 const TOP_ITEMS: NavItem[] = [
-  { href: "/ama-agent", label: "DB Agent", icon: "Sparkles" },
+  { href: "/ama-agent", label: "DB Agent", icon: "Sparkles", exact: true },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [
+  { href: "/ama-agent/runs", label: "Run History", icon: "History" },
   { href: "/query", label: "Query", icon: "Search" },
   { href: "/chat", label: "Chat", icon: "MessageSquare" },
   { href: "/data", label: "Data", icon: "Table" },
@@ -53,10 +56,15 @@ const BOTTOM_ITEMS: NavItem[] = [
   { href: "/guide", label: "User Guide", icon: "BookOpen" },
 ];
 
+function isActive(pathname: string, item: NavItem): boolean {
+  if (item.exact) return pathname === item.href;
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}
+
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
+      <SidebarMenuButton asChild isActive={isActive(pathname, item)}>
         <Link href={item.href}>
           <Icon type={item.icon} size="sm" />
           <span>{item.label}</span>
@@ -68,7 +76,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const toolsActive = TOOLS_ITEMS.some((i) => pathname.startsWith(i.href));
+  const toolsActive = TOOLS_ITEMS.some((i) => isActive(pathname, i));
   const [toolsOpen, setToolsOpen] = useState<boolean>(toolsActive || true);
 
   return (

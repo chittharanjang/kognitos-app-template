@@ -27,4 +27,8 @@ export const TABLES = {
   wealthxAccountDetails: "wealthx_account_details",
   azureProfileStatus: "azure_profile_status",
   sourceLoadRuns: "source_load_runs",
+  // Curated DB Agent test-question library used by the Run History page's
+  // "Test" button. Populated from Kognitos run history; see
+  // supabase/migrations/00000000000005_db_agent_test_questions.sql.
+  dbAgentTestQuestions: "db_agent_test_questions",
 } as const;
