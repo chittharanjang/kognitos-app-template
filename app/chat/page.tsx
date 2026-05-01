@@ -12,6 +12,24 @@ import {
 } from "@kognitos/lattice";
 import { useChatContext } from "@/lib/chat/chat-context";
 import { pickStarterSuggestionsForSession } from "@/lib/guide-queries";
+import { sanitizeChatAnswer } from "@/lib/chat/sanitizer";
+
+function lastUserMessage(messages: { role: string; content: string }[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i].content;
+  }
+  return null;
+}
+
+function lastUserMessageBefore(
+  messages: { role: string; content: string }[],
+  idx: number,
+): string | null {
+  for (let i = idx - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i].content;
+  }
+  return null;
+}
 
 export default function ChatPage() {
   const {
@@ -108,34 +126,46 @@ export default function ChatPage() {
           </div>
         ) : (
           <>
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-              >
+            {messages.map((msg, i) => {
+              const lastUser = lastUserMessageBefore(messages, i);
+              const display =
+                msg.role === "assistant"
+                  ? sanitizeChatAnswer(msg.content, lastUser)
+                  : msg.content;
+              return (
                 <div
-                  className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
+                  key={msg.id}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  {msg.role === "assistant" ? (
-                    <div className="chat-markdown">
-                      <Markdown textProps={{ level: "small" }}>{msg.content}</Markdown>
-                    </div>
-                  ) : (
-                    <Text level="small" className="text-primary-foreground">{msg.content}</Text>
-                  )}
+                  <div
+                    className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    }`}
+                  >
+                    {msg.role === "assistant" ? (
+                      <div className="chat-markdown">
+                        <Markdown textProps={{ level: "small" }}>{display}</Markdown>
+                      </div>
+                    ) : (
+                      <Text level="small" className="text-primary-foreground">{display}</Text>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {isSending && streamingContent && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted">
                   <div className="chat-markdown">
-                    <Markdown textProps={{ level: "small" }}>{streamingContent}</Markdown>
+                    <Markdown textProps={{ level: "small" }}>
+                      {sanitizeChatAnswer(
+                        streamingContent,
+                        lastUserMessage(messages),
+                      )}
+                    </Markdown>
                   </div>
                 </div>
               </div>

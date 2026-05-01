@@ -43,6 +43,15 @@ interface SourceTableConfig {
    * truncated and refilled. Used for tables with a natural primary key.
    */
   upsertKey?: string;
+  /**
+   * Sanity check: after mapping, at least one row must have a non-null value
+   * for every column listed here. If the check fails, the load is marked as
+   * failed and the existing Supabase data is preserved — no truncate-and-fill,
+   * no upsert. This catches silent regressions where the SQL Query Generator
+   * emits a query that drops a column we care about (e.g. it returns
+   * fiduciary_id but no postal_code).
+   */
+  requiredNonNullColumns?: string[];
 }
 
 const TABLE_CONFIGS: SourceTableConfig[] = [
@@ -81,13 +90,22 @@ const TABLE_CONFIGS: SourceTableConfig[] = [
     key: "fido_client_address",
     source: "FIDO",
     sourceTable: "FIDO.CLIENT_ADDRESS",
-    // Natural-language phrasing — the SQL Query Generator's preferred route
-    // is to join CLIENTS_FIDO with CLIENT_ADDRESS via fiduciary_id, which is
-    // exactly what we want. Asking it to "SELECT FROM CLIENT_ADDRESS" makes
-    // it hallucinate a postal_code column on CLIENTS_FIDO and return nulls.
+    // POSTAL_CODE only lives on FIDO.CLIENT_ADDRESS — it is NOT a column on
+    // CLIENTS_FIDO. The SQL Query Generator has hallucinated a postal_code
+    // column on CLIENTS_FIDO in the past and silently returned a result set
+    // with only fiduciary_id, leaving the mirror table full of nulls.
+    // The prompt below names the join explicitly so the generator can't
+    // skip it, and the requiredNonNullColumns check below stops the loader
+    // from overwriting good data if it ever does that again.
     prompt:
-      "Give me every client's FIDUCIARY_ID and their POSTAL_CODE. " +
-      "Include every client. Do not apply any filters, WHERE clauses, or LIMIT.",
+      "For every client in FIDO.CLIENTS_FIDO, return their FIDUCIARY_ID and " +
+      "the POSTAL_CODE from FIDO.CLIENT_ADDRESS. POSTAL_CODE is stored on " +
+      "FIDO.CLIENT_ADDRESS, NOT on FIDO.CLIENTS_FIDO. Build the result with a " +
+      "LEFT JOIN between FIDO.CLIENTS_FIDO and FIDO.CLIENT_ADDRESS on " +
+      "FIDUCIARY_ID so every client appears even if they have no address. " +
+      "The output must include both columns FIDUCIARY_ID and POSTAL_CODE. " +
+      "Do not apply any filters, WHERE clauses, or LIMIT.",
+    requiredNonNullColumns: ["postal_code"],
     mapRow: (r) => {
       const fid = pickString(r, ["FIDUCIARY_ID", "fiduciary_id"]);
       if (!fid) return null;
@@ -385,6 +403,24 @@ export async function loadSourceTable(key: SourceTableKey): Promise<LoadTableRes
     for (const r of rows) {
       const m = cfg.mapRow(r);
       if (m) mapped.push(m);
+    }
+
+    // Sanity check: if the SQL Query Generator silently dropped a column we
+    // care about (e.g. postal_code), refuse to overwrite the existing mirror
+    // table with all-null data. Fail the load instead so the previous good
+    // load is preserved and the failure shows up in source_load_runs.
+    if (cfg.requiredNonNullColumns?.length && mapped.length > 0) {
+      const missing = cfg.requiredNonNullColumns.filter(
+        (col) => !mapped.some((m) => m[col] != null && m[col] !== "")
+      );
+      if (missing.length > 0) {
+        throw new Error(
+          `Aborted load: SQL Query Generator returned ${mapped.length} rows ` +
+            `but no value for required column(s): ${missing.join(", ")}. ` +
+            `Generated SQL: ${generatedSql ?? "(none)"}. ` +
+            `Existing data in ${cfg.key} was preserved.`
+        );
+      }
     }
 
     await writeRowsToSupabase(cfg, mapped);

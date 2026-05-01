@@ -106,6 +106,35 @@ export default function GuidePage() {
         </Text>
       </div>
 
+      <div className="rounded-lg border border-border bg-card p-5 space-y-2">
+        <div className="flex items-center gap-2">
+          <Icon type="Table" size="sm" className="text-muted-foreground" />
+          <Text level="base" className="font-semibold">
+            Account-type breakdown answers
+          </Text>
+        </div>
+        <Text level="xSmall" color="muted">
+          Questions about account types render a canonical table with{" "}
+          <code className="px-1 py-0.5 rounded bg-muted font-mono text-xs">
+            Total
+          </code>
+          ,{" "}
+          <code className="px-1 py-0.5 rounded bg-muted font-mono text-xs">
+            Open
+          </code>
+          , and{" "}
+          <code className="px-1 py-0.5 rounded bg-muted font-mono text-xs">
+            Closed
+          </code>{" "}
+          columns. The chat answer stays focused on the table — generated SQL,
+          CSV exports, and raw rows are kept on the run-detail page (open via{" "}
+          <span className="font-medium">Open run details →</span> on a DB Agent
+          answer card). Filter phrases like &ldquo;open Estate accounts&rdquo;
+          add a <span className="font-medium">Filter:</span> line above the
+          table so the scope is unambiguous.
+        </Text>
+      </div>
+
       {/* Database Schema Reference */}
       <div className="rounded-lg border border-border bg-card p-5 space-y-4">
         <div className="flex items-center gap-2">

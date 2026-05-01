@@ -44,7 +44,8 @@ const TOP_ITEMS: NavItem[] = [
 
 const TOOLS_ITEMS: NavItem[] = [
   { href: "/ama-agent/runs", label: "Run History", icon: "History" },
-  { href: "/query", label: "Query", icon: "Search" },
+  { href: "/query", label: "Query", icon: "Search", exact: true },
+  { href: "/query/runs", label: "Query Runs", icon: "History" },
   { href: "/chat", label: "Chat", icon: "MessageSquare" },
   { href: "/data", label: "Data", icon: "Table" },
   { href: "/sources", label: "Source Data", icon: "Database" },

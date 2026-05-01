@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import Link from "next/link";
 import {
   Title,
   Text,
@@ -11,6 +12,7 @@ import {
   AlertTitle,
   AlertDescription,
 } from "@kognitos/lattice";
+import { MarkdownText } from "../components/markdown-text";
 
 interface AmaResult {
   status: string;
@@ -19,10 +21,7 @@ interface AmaResult {
   queryType: string | null;
   recordCount: number | null;
   databasesQueried: string[] | string | null;
-  generatedSql: string | null;
   subQuestions: string[] | null;
-  csvData: string | null;
-  tableData: Record<string, unknown>[] | null;
 }
 
 interface ChatEntry {
@@ -343,59 +342,25 @@ function LoadingIndicator({ entry }: { entry: ChatEntry }) {
   );
 }
 
-function isMarkdownTable(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.includes("---") && line.includes("|") && /-{3,}/.test(line)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function downloadCsv(csv: string, filename: string) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function ResultCard({ result, elapsed }: { result: AmaResult; elapsed: number }) {
-  const [showSql, setShowSql] = useState(false);
-  const [showTable, setShowTable] = useState(false);
   const [showSubQ, setShowSubQ] = useState(false);
 
   const dbs = Array.isArray(result.databasesQueried)
     ? result.databasesQueried.join(", ")
     : (result.databasesQueried ?? null);
 
-  const hasCsv = typeof result.csvData === "string" && result.csvData.trim().length > 0;
-  const responseIsTable = isMarkdownTable(result.responseText);
-  const showResponseText = !(responseIsTable && hasCsv);
-
-  const handleDownloadCsv = () => {
-    if (!hasCsv || !result.csvData) return;
-    const filename = `db-agent-${result.runId}.csv`;
-    downloadCsv(result.csvData, filename);
-  };
-
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] w-full space-y-3">
-        {showResponseText && (
-          <div className="rounded-2xl px-4 py-3 bg-muted/50 shadow-sm">
-            <Text level="small">
-              {result.responseText ?? "No response text returned."}
+        <div className="rounded-2xl px-4 py-3 bg-muted/50 shadow-sm">
+          {result.responseText && result.responseText.trim().length > 0 ? (
+            <MarkdownText text={result.responseText} />
+          ) : (
+            <Text level="small" color="muted">
+              No response text returned.
             </Text>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="flex flex-wrap gap-1.5 px-1 items-center">
           {result.queryType && (
@@ -416,17 +381,13 @@ function ResultCard({ result, elapsed }: { result: AmaResult; elapsed: number })
           {elapsed > 0 && (
             <Badge variant="secondary">{Math.round(elapsed / 1000)}s</Badge>
           )}
-          {hasCsv && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleDownloadCsv}
-              className="ml-1 h-6 px-2.5 text-xs gap-1.5"
-            >
-              <Icon type="Download" size="sm" />
-              csv
-            </Button>
-          )}
+          <Link
+            href={`/ama-agent/runs/${result.runId}`}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Open run details
+            <Icon type="ArrowRight" size="sm" />
+          </Link>
         </div>
 
         {Array.isArray(result.subQuestions) && result.subQuestions.length > 1 && (
@@ -450,77 +411,6 @@ function ResultCard({ result, elapsed }: { result: AmaResult; elapsed: number })
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
-        )}
-
-        {result.generatedSql && (
-          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
-            <button
-              onClick={() => setShowSql(!showSql)}
-              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
-            >
-              <Text level="xSmall" className="font-medium">
-                Generated SQL
-              </Text>
-              <Icon type={showSql ? "ChevronUp" : "ChevronDown"} size="sm" className="text-muted-foreground" />
-            </button>
-            {showSql && (
-              <div className="px-4 py-3 border-t border-border bg-muted/20">
-                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
-                  {result.generatedSql}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-
-        {result.tableData && result.tableData.length > 0 && (
-          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
-            <button
-              onClick={() => setShowTable(!showTable)}
-              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
-            >
-              <Text level="xSmall" className="font-medium">
-                Result Table ({result.tableData.length} row{result.tableData.length !== 1 ? "s" : ""})
-              </Text>
-              <Icon type={showTable ? "ChevronUp" : "ChevronDown"} size="sm" className="text-muted-foreground" />
-            </button>
-            {showTable && (
-              <div className="border-t border-border overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      {Object.keys(result.tableData[0]).map((col) => (
-                        <th
-                          key={col}
-                          className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap"
-                        >
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.tableData.map((row, i) => (
-                      <tr
-                        key={i}
-                        className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
-                      >
-                        {Object.values(row).map((val, j) => (
-                          <td key={j} className="px-3 py-2 whitespace-nowrap">
-                            {val == null ? (
-                              <span className="text-muted-foreground italic">null</span>
-                            ) : (
-                              String(val)
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             )}
           </div>
         )}

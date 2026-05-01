@@ -19,19 +19,19 @@ import { readSseStream } from "@/lib/sse";
 
 dayjs.extend(relativeTime);
 
-interface RunSummary {
+interface QueryRunSummary {
   runId: string;
   createdAt: string | null;
   updatedAt: string | null;
   stage: string | null;
   status: string;
   question: string | null;
-  requesterEmail: string | null;
   answer: string | null;
   errorText: string | null;
-  queryType: string | null;
-  recordCount: number | null;
-  databasesQueried: string | null;
+  resultRowCount: number | null;
+  subQueryCount: number | null;
+  generatedSqlPreview: string | null;
+  appliedWhereClauseCount: number | null;
   kognitosUrl: string;
 }
 
@@ -93,8 +93,8 @@ interface LoadResult {
   upserted: number;
 }
 
-export default function RunsHistoryPage(): React.ReactElement {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
+export default function QueryRunsHistoryPage(): React.ReactElement {
+  const [runs, setRuns] = useState<QueryRunSummary[]>([]);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
@@ -123,7 +123,7 @@ export default function RunsHistoryPage(): React.ReactElement {
       params.set("pageSize", String(PAGE_SIZE));
       if (pageToken) params.set("pageToken", pageToken);
 
-      const res = await fetch(`/api/ama-agent/runs?${params.toString()}`, {
+      const res = await fetch(`/api/query/runs?${params.toString()}`, {
         cache: "no-store",
       });
       if (!res.ok) {
@@ -131,7 +131,7 @@ export default function RunsHistoryPage(): React.ReactElement {
         throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
       }
       const data = (await res.json()) as {
-        runs: RunSummary[];
+        runs: QueryRunSummary[];
         nextPageToken: string | null;
       };
       setNextPageToken(data.nextPageToken);
@@ -167,7 +167,7 @@ export default function RunsHistoryPage(): React.ReactElement {
 
   const refreshQuestionCount = useCallback(async () => {
     try {
-      const res = await fetch("/api/ama-agent/test-questions", {
+      const res = await fetch("/api/query/test-questions", {
         cache: "no-store",
       });
       const data = (await res.json()) as {
@@ -195,7 +195,7 @@ export default function RunsHistoryPage(): React.ReactElement {
     setQuestionLoadError(null);
     setLastLoadResult(null);
     try {
-      const res = await fetch("/api/ama-agent/test-questions/load", {
+      const res = await fetch("/api/query/test-questions/load", {
         method: "POST",
       });
       const data = (await res.json()) as Partial<LoadResult> & {
@@ -229,14 +229,13 @@ export default function RunsHistoryPage(): React.ReactElement {
 
     let stage: string | null = null;
     try {
-      const res = await fetch("/api/ama-agent/test-questions/run", {
+      const res = await fetch("/api/query/test-questions/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ concurrency: 25 }),
       });
 
       if (!res.ok) {
-        // Non-streaming error response (e.g. missing migration, 500).
         let message = `HTTP ${res.status}`;
         try {
           const data = (await res.json()) as { error?: string };
@@ -248,8 +247,6 @@ export default function RunsHistoryPage(): React.ReactElement {
         return;
       }
 
-      // Live SSE consumption — every `result` event nudges the runs list and
-      // the progress card so the user sees rows light up as they finish.
       let total = 0;
       let completed = 0;
       let failed = 0;
@@ -309,8 +306,6 @@ export default function RunsHistoryPage(): React.ReactElement {
                 }
               : p,
           );
-          // Refresh the underlying runs list at most every 4s so the user
-          // sees newly-finished runs without spamming the runs API.
           const now = Date.now();
           if (now - lastListRefresh > 4000) {
             lastListRefresh = now;
@@ -328,8 +323,6 @@ export default function RunsHistoryPage(): React.ReactElement {
         }
       }
 
-      // Final refresh once the stream ends so every run is reflected, even
-      // if the throttle skipped the last few results.
       await refresh().catch(() => {});
       void total;
     } catch (e) {
@@ -363,7 +356,7 @@ export default function RunsHistoryPage(): React.ReactElement {
         return false;
       }
       if (q) {
-        const hay = `${r.question ?? ""} ${r.answer ?? ""} ${r.errorText ?? ""} ${r.runId}`.toLowerCase();
+        const hay = `${r.question ?? ""} ${r.answer ?? ""} ${r.errorText ?? ""} ${r.generatedSqlPreview ?? ""} ${r.runId}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -374,10 +367,10 @@ export default function RunsHistoryPage(): React.ReactElement {
     <div className="p-6 space-y-6 max-w-5xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <Title level="h2">DB Agent — Run History</Title>
+          <Title level="h2">Query — Run History</Title>
           <Text level="small" color="muted">
-            Every DB Agent run from Kognitos. Click a card to see the full
-            answer, SQL, and result table.
+            Every SQL Query Generator run from Kognitos. Click a card to see the
+            full answer, generated SQL, and result table.
           </Text>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -439,8 +432,8 @@ export default function RunsHistoryPage(): React.ReactElement {
         <Alert>
           <AlertTitle>Loaded test questions</AlertTitle>
           <AlertDescription>
-            Scanned {lastLoadResult.totalRunsScanned} historical runs and stored{" "}
-            {lastLoadResult.uniqueQuestions} unique question
+            Scanned {lastLoadResult.totalRunsScanned} historical Query runs and
+            stored {lastLoadResult.uniqueQuestions} unique question
             {lastLoadResult.uniqueQuestions === 1 ? "" : "s"} in the local
             database.
           </AlertDescription>
@@ -450,7 +443,7 @@ export default function RunsHistoryPage(): React.ReactElement {
       {progress && (
         <BatchProgressCard
           progress={progress}
-          label="DB Agent"
+          label="SQL Query Generator"
         />
       )}
 
@@ -467,7 +460,7 @@ export default function RunsHistoryPage(): React.ReactElement {
                     ?.replace(/^AUTOMATION_STAGE_/, "")
                     .toLowerCase() ?? "configured"}
             </strong>{" "}
-            stage of DB Agent
+            stage of SQL Query Generator
             {lastTestResult.failed > 0
               ? ` (${lastTestResult.failed} failed)`
               : ""}{" "}
@@ -520,7 +513,7 @@ export default function RunsHistoryPage(): React.ReactElement {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search question or answer…"
+            placeholder="Search question, answer or SQL…"
             className="h-9 w-72 rounded-md border border-border bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
         </div>
@@ -536,11 +529,11 @@ export default function RunsHistoryPage(): React.ReactElement {
         !error && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Icon type="History" size="xl" className="text-muted-foreground" />
-            <Text color="muted">No runs found for the DB Agent yet.</Text>
-            <Link href="/ama-agent">
+            <Text color="muted">No runs found for the Query app yet.</Text>
+            <Link href="/query">
               <Button variant="outline" size="sm">
-                <Icon type="Sparkles" size="sm" />
-                <span className="ml-1.5">Open DB Agent</span>
+                <Icon type="Search" size="sm" />
+                <span className="ml-1.5">Open Query</span>
               </Button>
             </Link>
           </div>
@@ -584,20 +577,19 @@ export default function RunsHistoryPage(): React.ReactElement {
   );
 }
 
-function RunCard({ run }: { run: RunSummary }): React.ReactElement {
+function RunCard({ run }: { run: QueryRunSummary }): React.ReactElement {
   const isCompleted = run.status === "completed";
   const isError = run.status === "failed" || run.status === "awaiting_guidance";
-  const dbs = run.databasesQueried ?? null;
 
   return (
     <Link
-      href={`/ama-agent/runs/${run.runId}`}
+      href={`/query/runs/${run.runId}`}
       className="block rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-150 group"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <div className="mt-0.5 shrink-0 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
-            <Icon type="Sparkles" size="sm" className="text-primary" />
+            <Icon type="Search" size="sm" className="text-primary" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <div>
@@ -631,6 +623,16 @@ function RunCard({ run }: { run: RunSummary }): React.ReactElement {
                 </Text>
               )}
             </div>
+            {isCompleted && run.generatedSqlPreview && (
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                  Generated SQL
+                </div>
+                <pre className="text-[11px] font-mono text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                  {run.generatedSqlPreview}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
         <div className="shrink-0">
@@ -643,15 +645,21 @@ function RunCard({ run }: { run: RunSummary }): React.ReactElement {
       </div>
       <div className="mt-3 pl-12 flex flex-wrap items-center gap-1.5">
         {statusBadge(run.status)}
-        {run.queryType && (
-          <Badge variant="secondary">type: {run.queryType}</Badge>
-        )}
-        {run.recordCount != null && (
+        {run.resultRowCount != null && (
           <Badge variant="secondary">
-            {run.recordCount} record{run.recordCount === 1 ? "" : "s"}
+            {run.resultRowCount} row{run.resultRowCount === 1 ? "" : "s"}
           </Badge>
         )}
-        {dbs && <Badge variant="secondary">db: {dbs}</Badge>}
+        {run.subQueryCount != null && run.subQueryCount > 1 && (
+          <Badge variant="secondary">{run.subQueryCount} sub-queries</Badge>
+        )}
+        {run.appliedWhereClauseCount != null &&
+          run.appliedWhereClauseCount > 0 && (
+            <Badge variant="secondary">
+              {run.appliedWhereClauseCount} filter
+              {run.appliedWhereClauseCount === 1 ? "" : "s"}
+            </Badge>
+          )}
         {run.createdAt && (
           <Text level="xSmall" color="muted" className="ml-auto">
             {dayjs(run.createdAt).fromNow()}
@@ -697,8 +705,8 @@ function ConfirmTestDialog({
             <Title level="h4">Run all stored test questions?</Title>
             <Text level="small" color="muted" className="mt-1">
               {count} question{count === 1 ? "" : "s"} from the local library
-              will be sent to the <strong>published</strong> DB Agent in
-              parallel (concurrency 25). New runs will appear in this list as
+              will be sent to the <strong>published</strong> SQL Query Generator
+              in parallel (concurrency 25). New runs will appear in this list as
               they start.
             </Text>
           </div>
@@ -788,10 +796,7 @@ function BatchProgressCard({
   const { total, completed, failed, recent, concurrency, stage, startedAt } =
     progress;
   const finished = completed + failed;
-  const running = Math.max(
-    0,
-    Math.min(concurrency, total - finished),
-  );
+  const running = Math.max(0, Math.min(concurrency, total - finished));
   const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
   const stageLabel =
     stage === "AUTOMATION_STAGE_PUBLISHED"

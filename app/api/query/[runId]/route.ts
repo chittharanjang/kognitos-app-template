@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { req, ORG_ID, WORKSPACE_ID, parseOutputValue } from "@/lib/kognitos";
+import {
+  req,
+  ORG_ID,
+  WORKSPACE_ID,
+  parseOutputValue,
+  kognitosRunUrl,
+} from "@/lib/kognitos";
 import { decodeArrowTable } from "@/lib/arrow";
 import { getSqlQueryGeneratorAutomationId } from "@/lib/query-assistant";
 
@@ -8,9 +14,10 @@ export async function GET(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
+  const automationId = getSqlQueryGeneratorAutomationId();
 
   const res = await req(
-    `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${getSqlQueryGeneratorAutomationId()}/runs/${runId}`,
+    `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${automationId}/runs/${runId}`,
   );
 
   if (!res.ok) {
@@ -21,6 +28,25 @@ export async function GET(
   }
 
   const data = await res.json();
+
+  const userInputs = (data.user_inputs ?? {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const userQuery = userInputs["User Query"];
+  const question =
+    userQuery && typeof userQuery.text === "string"
+      ? (userQuery.text as string)
+      : null;
+
+  const base = {
+    runId,
+    question,
+    createdAt: (data.create_time as string | undefined) ?? null,
+    updatedAt: (data.update_time as string | undefined) ?? null,
+    stage: (data.stage as string | undefined) ?? null,
+    kognitosUrl: kognitosRunUrl(runId, automationId),
+  };
 
   if (data.state?.completed) {
     const rawOutputs = data.state.completed.outputs ?? {};
@@ -33,14 +59,18 @@ export async function GET(
     for (const val of Object.values(rawOutputs) as Array<Record<string, unknown>>) {
       const b64 = (val?.table as Record<string, Record<string, string>>)?.inline?.data;
       if (b64) {
-        tableData = decodeArrowTable(b64);
+        try {
+          tableData = decodeArrowTable(b64);
+        } catch {
+          tableData = null;
+        }
         break;
       }
     }
 
     return NextResponse.json({
+      ...base,
       status: "completed",
-      runId,
       responseText: outputs.response_text ?? null,
       generatedSql: outputs.generated_sql ?? null,
       questionCount: outputs.question_count ?? null,
@@ -54,16 +84,16 @@ export async function GET(
 
   if (data.state?.failed) {
     return NextResponse.json({
+      ...base,
       status: "failed",
-      runId,
       error: data.state.failed.error?.description ?? "Run failed",
     });
   }
 
   if (data.state?.awaiting_guidance) {
     return NextResponse.json({
+      ...base,
       status: "awaiting_guidance",
-      runId,
       error:
         data.state.awaiting_guidance.exception ??
         data.state.awaiting_guidance.description ??
@@ -72,5 +102,5 @@ export async function GET(
   }
 
   const currentState = Object.keys(data.state ?? {})[0] ?? "unknown";
-  return NextResponse.json({ status: "running", runId, state: currentState });
+  return NextResponse.json({ ...base, status: "running", state: currentState });
 }

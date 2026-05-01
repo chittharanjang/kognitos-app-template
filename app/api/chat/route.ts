@@ -383,6 +383,12 @@ function summarizeToolResult(toolName: string, raw: string): string {
   if (toolName === "describe_schema") {
     return "Schema loaded";
   }
+  if (toolName === "get_account_type_breakdown") {
+    if (raw.startsWith("Tool error:")) return raw.slice(0, 180);
+    const m = /record_count:\s*(\d+)/.exec(raw);
+    if (m) return `Account-type breakdown · ${m[1]} accounts`;
+    return "Account-type breakdown ready";
+  }
   if (toolName === "run_sql") {
     if (raw.startsWith("SQL error:") || raw.startsWith("Tool error:")) {
       return raw.slice(0, 180);

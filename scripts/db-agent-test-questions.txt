@@ -25,12 +25,139 @@
 #   J2     Cross-DB Joins (Two DBs)        B4     Cross-DB Joins (Three DBs)
 #   IRA    IRA Account Type Handling       MULTI  Multi-Question Emails
 #   AMB    Ambiguous / Poorly Structured   PARA   Long Paragraph Queries
-#   NDF    No Data Found Scenarios         GOV    Data Governance / Security
-#   Q      Composite / Complex Business    N      Aggregation / Count
+#   DIFF   Set Difference / Anti-Join      NDF    No Data Found Scenarios
+#   GOV    Data Governance / Security      Q      Composite / Complex Business
+#   N      Aggregation / Count
 
 # ─────────────────────────────────────────────────────────────────────
 # 1. Yes/No Questions (Single DB) — FIDO, Profile Status
 # Concise Yes/No answer in email body. No file attachment.
+#
+# As of v1.19, yes/no portal-access questions are PHRASING-AGNOSTIC.
+# All of these route through the same strict-match composer and report
+# the actual `online_portal_access` value:
+#
+#   Canonical:        "Does Liam Johnson have portal access?"
+#   Possessive:       "Liam's portal access?", "rahul's portal-access?"
+#   No leading verb:  "rahul portal access?", "john smith portal access?"
+#   Case-insensitive: "rahul mehta portal access?", "f1010 portal access?"
+#   Hyphenated:       "Rahul's portal-access?"
+#   Synonym:          "is rahul registered?", "rahul registered?"
+#
+# Behavior:
+#   - 0 matches → NDF: "No — <Name> was not found in the system."
+#   - 1 match  → "Yes/No — <Full Name> [does not] have portal access."
+#   - 2+ matches → "Multiple clients match '<token>': <names>. Please
+#                  specify a full name or a fiduciary ID."
+#
+# Examples on the seed dataset:
+#   - "Does John Smith have portal access?"   → NDF (no John Smith in DB)
+#   - "Does John Doe have portal access?"     → No  (opa=False, F1031)
+#   - "Does Liam Johnson have portal access?" → Yes (opa=True,  F1010)
+#   - "Does F1010 have portal access?"        → Yes (Liam Johnson)
+#   - "rahul's portal access?"                → Yes (Rahul Mehta, F1028)
+#   - "Is John registered?"                   → No  (John Doe, opa=False, F1031)
+#   - "is priya nair registered?"             → No  (Priya Nair, opa=False)
+#
+# v1.20: per-sub-question pre-intercept + expanded stopwords prevent
+# words like `id`, `email`, `give`, `his`, `phone` from leaking into
+# name claims. Multi-question queries like
+# "Is John registered? Also give me his email ID." now split correctly
+# (sub-Q1 = portal yes/no for John Doe; sub-Q2 = his email via pronoun
+# resolution). Same release: v1.17 IRA subtype-refinement now also
+# applies to the data-retrieval path, so
+# "Give me clients with Inherited Roth IRA accounts." returns 4 (the
+# 4 Inherited Roth IRA clients only — not 11 = Roth+Inherited Roth).
+#
+# v1.21: the "registered" verb path now resolves the name BEFORE
+# checking opa (was filtering opa=True first, dropping unregistered
+# clients before the name lookup). "Is X registered?" works for both
+# opa=True and opa=False targets.
+#
+# v1.22 (2026-05-01): comprehensive name-extractor stopword expansion
+# + multi-question planner-state isolation. The portal/registered
+# yes/no name extractor previously leaked status/object/greeting
+# tokens (`open`, `closed`, `active`, `inactive`, `system`,
+# `database`, `hi`, `thanks`, `named`, `you`, `we`, `profile`,
+# `allowed`, `granted`, `roth`, `ira`, ...) into name claims,
+# producing NDFs like "John Open not found", "Database not found",
+# "Hi Thanks not found", "We Smith not found", "Named Smith not
+# found", "John Allowed not found", "Priya Granted not found".
+# v1.22 added ~110 tokens to both `yn_pre_sw` and
+# `yn_claim_stopwords` (covering verbs, status words, account-type
+# words, greetings/sign-offs, request verbs, pronouns), restored a
+# `composed_done = True` that was dropped during the v1.22
+# empty-claims-fall-through edit (this had broken every "Is X
+# registered?" / "X registered?" question into a registered-clients
+# table dump), and added Unicode smart-apostrophe (`\u2019`)
+# normalization to the FID tokenizer (mIxEd-case `wHaT iS jOhN's
+# EmAiL iD?` was producing AWAITING_GUIDANCE exceptions).
+#
+# Same release: per-sub-question planner state isolation. When a
+# multi-question email like "How many active clients are there? And
+# can you share the list of clients with Roth IRA accounts?" was
+# rendered, sub-Q1's count label inherited sub-Q2's `Roth IRA`
+# filter ("Count: 22 record(s) matching ACTIVE + Roth"). v1.22
+# changes count-label assembly to read `pln.get("filters", [])` for
+# the current sub-question instead of the outer-scope `plan_filters_
+# pre`. Sub-Q1 now correctly renders "Count: 22 record(s) matching
+# ACTIVE" — Roth filter only appears in sub-Q2 where the user asked
+# for it. Same fix applied to `pln_col_filters_iter`.
+#
+# Verification: portal-yesno suite 25/25 PASS; category-coverage
+# suite 38/38 PASS, 0 warnings, 0 fails. All bugs surfaced by the
+# 38-case mixed-case-permutation sweep are fixed.
+#
+# v4.0 PUBLISHED 2026-05-01T14:06:01Z (was v3.0 from 2026-05-01T00:34:34Z).
+# Published via the previously-undocumented `:publish` REST endpoint
+# (POST /organizations/{ORG}/workspaces/{WS}/automations/{AUTO}:publish).
+# Post-publish PUBLISHED-stage runs:
+#   `STAGE=published npx tsx scripts/category-coverage-suite.ts`  → 38/38 PASS
+#   `STAGE=published npx tsx scripts/verify-portal-yesno-suite.ts` → 25/25 PASS
+# (As before, publishing deletes the DRAFT — `:fork` it again before
+# the next round of edits.)
+#
+# Strict-match rules:
+#   - 2+ name tokens → both must match first AND last (no substring).
+#   - 1 name token   → matches first OR last (case-insensitive).
+#   - F<digits> bypasses name resolution and filters by fiduciary_id.
+#   - The FIDO name vocabulary is used to MATCH rows, not to DECIDE
+#     whether the user supplied a name (so "Does Smith have portal
+#     access?" → NDF "Smith not found", not a disambiguation prompt).
+#
+# Run `npx tsx scripts/verify-portal-yesno-suite.ts` to re-verify
+# (25/25 PASS on DRAFT v1.22). 25-case suite covers canonical,
+# possessive, hyphenated, no-Does, mixed case-permutation,
+# multi-question, NDF, FID, and registered-verb phrasings.
+#
+# Run `npx tsx scripts/category-coverage-suite.ts` for the broader
+# 38-case sweep (38/38 PASS on DRAFT v1.22, 19 categories × 2 queries
+# × mixed case-permutation).
+#
+# Category-coverage run (DRAFT v1.22, mixed case-permutation, 2026-05-01):
+#   `scripts/category-coverage-suite.ts` — 38 cases (19 categories × 2),
+#   permutations cycle lowercase / UPPERCASE / Title / Sentence / mIxEd /
+#   sPoNgEbOb. v1.21 result: 38/38 PASS (soft validators) but three
+#   pre-existing semantic bugs surfaced. v1.22 fixed all three:
+#
+#     1. ✅ FIXED IN v1.22 — name-extractor verb/object/greeting leaks
+#        ("John Open not found", "Database not found", "Hi Thanks not
+#        found", "We Smith not found", "Named Smith not found", "John
+#        Allowed not found", "Priya Granted not found"). Stopword set
+#        expanded from 70 to ~180 tokens covering verbs, status words,
+#        account-type words, greetings, request verbs, and pronouns.
+#
+#     2. ✅ FIXED IN v1.22 — empty-claim portal/registered yes/no
+#        ("Are there any clients in the database?") used to NDF on
+#        the leaked stopword tokens. Now falls through cleanly to the
+#        count/list path when no entity identifier was supplied.
+#
+#     3. ✅ FIXED IN v1.22 — multi-question filter bleed. Sub-Q1
+#        ("How many active clients?") no longer inherits sub-Q2's
+#        Roth-IRA filter — count label now reads from per-sub-question
+#        `pln.filters` instead of the outer-scope `plan_filters_pre`.
+#
+#   v1.22 result: portal-yesno 25/25 PASS, category-coverage 38/38 PASS.
 # ─────────────────────────────────────────────────────────────────────
 
 [YN1] Is John registered in the system?
@@ -40,6 +167,9 @@
 [YN5] Does the client with FIDUCIARY_ID F1010 exist?
 [YN6] Is there any client with a locked profile?
 [YN7] Are there any deactivated profiles in the system?
+[YN8] Does John Smith have portal access?
+[YN9] Does John Doe have portal access?
+[YN10] Does Liam Johnson have portal access?
 
 # ─────────────────────────────────────────────────────────────────────
 # 2. Yes/No Questions (Cross-DB) — FIDO + WealthX + Profile Status
@@ -110,6 +240,16 @@
 # Tests: open/closed account filters, account-type filter (IRA, Roth IRA,
 # Estate), distinct-values composer, universal FID defense (F1005),
 # count label builder (includes column_filters terms).
+#
+# As of v1.17, account-type breakdown questions render a canonical
+# Markdown table:
+#     | Account Type | Total | Open | Closed |
+# with a fixed row order (Investment Account, Roth IRA, Traditional IRA,
+# Inherited Roth IRA, Inherited Traditional IRA, Estate, then a bold
+# Total row). When a filter is applied (e.g. "IRA" or "open · Estate"),
+# a "Filter:" line appears above the table.
+# Types-only mode ("Show all account types available") renders a single
+# `| Account Type | Total |` table.
 # ─────────────────────────────────────────────────────────────────────
 
 [B3-1] Show me all open accounts.
@@ -157,7 +297,10 @@
 # ─────────────────────────────────────────────────────────────────────
 # 11. IRA Account Type Handling
 # Generic "IRA" returns all IRA variants. An exact type like "Roth IRA"
-# returns only that type.
+# returns only that type. As of v1.17, "How many <X> accounts" intents
+# (X = IRA, Roth IRA, Traditional IRA, Inherited Roth IRA, Inherited
+# Traditional IRA) render the canonical breakdown table rather than a
+# plain count. "How many clients have …" still renders a single number.
 # ─────────────────────────────────────────────────────────────────────
 
 [IRA-1] Give me the list of clients who have IRA accounts.
@@ -206,7 +349,26 @@
 [PARA-3] We are doing an audit and need to verify all clients whose profiles are currently locked. Please share their details including name, email, account numbers and account types.
 
 # ─────────────────────────────────────────────────────────────────────
-# 15. No Data Found Scenarios
+# 15. Set Difference / Anti-Join Queries
+# Cross-database "present in X but not in Y" questions. Returns
+# distinct FIDUCIARY_IDs that exist in the left source and are missing
+# from the right source. Trigger phrases include: not in, missing from,
+# only in, unique to, who have no, with no.
+# Tests: code-side anti-join detection (no LLM planner change), correct
+# left/right ordering by mention position, FID extraction from raw
+# all_rows_snowflake / all_rows_acct / all_rows_prof, NDF response on
+# empty diff, query_type=set_difference, and LEFT JOIN ... IS NULL
+# generated_sql preservation past the global finalizer.
+# ─────────────────────────────────────────────────────────────────────
+
+[DIFF-1] Share the clients list which is present in accounts table and not in clients_fido table.
+[DIFF-2] Which FIDUCIARY_IDs exist in WealthX but not in FIDO?
+[DIFF-3] List clients in clients_fido who have no accounts in WealthX.
+[DIFF-4] Show profiles in profile_status that are missing from clients_fido.
+[DIFF-5] Which clients in FIDO are unique to FIDO and not present in accounts?
+
+# ─────────────────────────────────────────────────────────────────────
+# 16. No Data Found Scenarios
 # Respond professionally: "No records were found based on the provided
 # criteria." Never leave blank, never expose SQL errors.
 # ─────────────────────────────────────────────────────────────────────
@@ -217,7 +379,7 @@
 [NDF-4] Give me details for client "NonexistentPerson".
 
 # ─────────────────────────────────────────────────────────────────────
-# 16. Data Governance / Security Edge Cases
+# 17. Data Governance / Security Edge Cases
 # Exclude ONLINE_PORTAL_ACCESS unless explicitly requested. Never expose
 # schema names or SQL.
 # ─────────────────────────────────────────────────────────────────────
@@ -228,7 +390,7 @@
 [GOV-4] Share client details including their online portal access.
 
 # ─────────────────────────────────────────────────────────────────────
-# 17. Composite / Complex Business Queries
+# 18. Composite / Complex Business Queries
 # Sample queries from the POC document.
 # Tests: active-status filter, account-type recognition, sub-question
 # merging, BOTH-X-AND-Y intersection logic.
@@ -241,11 +403,14 @@
 [Q5] Give me the list of clients who have both open IRA accounts and Investment accounts.
 
 # ─────────────────────────────────────────────────────────────────────
-# 18. Aggregation / Count Queries
+# 19. Aggregation / Count Queries
 # Tests: count-only responses, count-with-threshold (>1 account),
 # breakdown/group-by composer branch.
-# Caveat: N1 reports total clients with a transparency note since
-# `registration` is not exposed by FIDO.
+# Note: As of v1.16, registration semantics are derived from
+# ONLINE_PORTAL_ACCESS (True = registered, False = unregistered), so
+# N1 returns the actual registered count without a transparency note.
+# As of v1.17, [N4] renders the canonical account-type breakdown table
+# (Total/Open/Closed columns + Total row reading 37/24/13).
 # ─────────────────────────────────────────────────────────────────────
 
 [N1] How many clients are registered in the system?
@@ -261,6 +426,30 @@
 #     in use. Queries like "What is the market value of F1006?" cannot
 #     be answered until a procedure that exposes the column is added.
 #
-#   - registration status: FIDO does not expose a `registration` column.
-#     Filters on registration are treated as no-ops; the response
-#     includes a transparency note.
+#   - registration status (resolved in v1.16): FIDO's `REGISTRATION`
+#     column is empty. As of v1.16, the agent derives registration
+#     semantics from `ONLINE_PORTAL_ACCESS`:
+#         True  → registered
+#         False → unregistered
+#     Filters on "registered"/"unregistered"/"not registered" now work
+#     correctly. ONLINE_PORTAL_ACCESS is still excluded from response
+#     columns unless the user explicitly asks for portal access.
+#     Verified ground truth (snapshot taken on v2.3 draft):
+#         registered  : 5 clients  (F1010, F1021, F1025, F1028, F1029)
+#         unregistered: 21 clients (everyone else in CLIENTS_FIDO)
+#     Run `npx tsx scripts/verify-registration-suite.ts` to re-verify.
+#
+#   - account-type breakdowns (added in v1.17): any "breakdown by account
+#     type" / "how many <X> accounts" / "what account types are
+#     available" intent now renders a canonical Markdown table. The
+#     run-detail page surfaces SQL / CSV / raw rows; the chat answer
+#     stays focused on the human-readable table.
+#     Verified ground truth (DRAFT v1.17, all account types):
+#         Investment Account        9 (8 open / 1 closed)
+#         Roth IRA                  7 (6 open / 1 closed)
+#         Traditional IRA           8 (1 open / 7 closed)
+#         Inherited Roth IRA        4 (4 open / 0 closed)
+#         Inherited Traditional IRA 4 (0 open / 4 closed)
+#         Estate                    5 (5 open / 0 closed)
+#         Total                    37 (24 open / 13 closed)
+#     Run `npx tsx scripts/verify-account-types-suite.ts` to re-verify.

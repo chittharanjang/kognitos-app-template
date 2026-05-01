@@ -2,7 +2,6 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Title,
   Text,
@@ -16,7 +15,6 @@ import {
 } from "@kognitos/lattice";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { MarkdownText } from "../../../components/markdown-text";
 
 dayjs.extend(relativeTime);
 
@@ -24,18 +22,17 @@ interface RunDetail {
   runId: string;
   status: string;
   question: string | null;
-  requesterEmail: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   stage: string | null;
   kognitosUrl: string;
   responseText?: string | null;
-  queryType?: string | null;
-  recordCount?: number | null;
-  databasesQueried?: string | string[] | null;
   generatedSql?: string | null;
+  questionCount?: number | null;
   subQuestions?: string[] | null;
-  csvData?: string | null;
+  subQueryCount?: number | null;
+  resultRowCount?: number | null;
+  appliedWhereClauses?: string[] | null;
   tableData?: Record<string, unknown>[] | null;
   error?: string | null;
   state?: string | null;
@@ -56,6 +53,33 @@ function statusBadge(status: string): React.ReactElement {
   }
 }
 
+function rowsToCsv(rows: Record<string, unknown>[]): string {
+  if (!rows || rows.length === 0) return "";
+  const headers = Object.keys(rows[0] ?? {});
+  const escape = (val: unknown): string => {
+    if (val == null) return "";
+    let s: string;
+    if (typeof val === "string") s = val;
+    else if (typeof val === "number" || typeof val === "boolean") s = String(val);
+    else {
+      try {
+        s = JSON.stringify(val);
+      } catch {
+        s = String(val);
+      }
+    }
+    if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(headers.map((h) => escape(row[h])).join(","));
+  }
+  return lines.join("\n");
+}
+
 function downloadCsv(csv: string, filename: string): void {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -68,7 +92,7 @@ function downloadCsv(csv: string, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function RunDetailPage({
+export default function QueryRunDetailPage({
   params,
 }: {
   params: Promise<{ runId: string }>;
@@ -82,7 +106,7 @@ export default function RunDetailPage({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`/api/ama-agent/runs/${runId}`, { cache: "no-store" })
+    fetch(`/api/query/${runId}`, { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) {
           const text = await res.text();
@@ -110,7 +134,7 @@ export default function RunDetailPage({
     <div className="p-6 space-y-6 max-w-4xl">
       <div className="flex items-center gap-3">
         <Link
-          href="/ama-agent/runs"
+          href="/query/runs"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <Icon type="ChevronLeft" size="sm" />
@@ -119,7 +143,7 @@ export default function RunDetailPage({
       </div>
 
       <div>
-        <Title level="h2">DB Agent Run</Title>
+        <Title level="h2">Query Run</Title>
         <Text level="xSmall" color="muted" className="font-mono">
           {runId}
         </Text>
@@ -153,73 +177,34 @@ export default function RunDetailPage({
 }
 
 function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
-  const router = useRouter();
-  const [reRunning, setReRunning] = useState<boolean>(false);
-  const [reRunError, setReRunError] = useState<string | null>(null);
   const isCompleted = data.status === "completed";
   const isError =
     data.status === "failed" || data.status === "awaiting_guidance";
-  const dbs = Array.isArray(data.databasesQueried)
-    ? data.databasesQueried.join(", ")
-    : (data.databasesQueried ?? null);
-  const hasCsv =
-    typeof data.csvData === "string" && data.csvData.trim().length > 0;
+  const [copied, setCopied] = useState<boolean>(false);
 
-  const handleReRun = async (): Promise<void> => {
-    if (!data.question) return;
-    setReRunning(true);
-    setReRunError(null);
+  const handleCopySql = async (): Promise<void> => {
+    if (!data.generatedSql) return;
     try {
-      const res = await fetch("/api/ama-agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: data.question,
-          requesterEmail: data.requesterEmail ?? undefined,
-        }),
-      });
-      const json = (await res.json()) as { runId?: string; error?: string };
-      if (!res.ok || !json.runId) {
-        throw new Error(json.error ?? `HTTP ${res.status}`);
-      }
-      router.push(`/ama-agent/runs/${json.runId}`);
-    } catch (e) {
-      setReRunError(e instanceof Error ? e.message : "Failed to re-run");
-      setReRunning(false);
+      await navigator.clipboard.writeText(data.generatedSql);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignored
     }
   };
+
+  const hasTable =
+    Array.isArray(data.tableData) && data.tableData.length > 0;
 
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0 space-y-2">
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Question
-            </div>
-            <Text level="base" className="font-semibold whitespace-pre-wrap">
-              {data.question ?? "(no question)"}
-            </Text>
-          </div>
-          {data.question && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReRun}
-              disabled={reRunning}
-              className="shrink-0"
-            >
-              <Icon type="RefreshCw" size="sm" />
-              <span className="ml-1.5">{reRunning ? "Re-running…" : "Re-run"}</span>
-            </Button>
-          )}
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Question
         </div>
-        {reRunError && (
-          <Alert variant="destructive">
-            <AlertTitle>Re-run failed</AlertTitle>
-            <AlertDescription>{reRunError}</AlertDescription>
-          </Alert>
-        )}
+        <Text level="base" className="font-semibold whitespace-pre-wrap">
+          {data.question ?? "(no question)"}
+        </Text>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-2">
@@ -227,13 +212,11 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
           Answer
         </div>
         {isCompleted ? (
-          data.responseText && data.responseText.trim().length > 0 ? (
-            <MarkdownText text={data.responseText} />
-          ) : (
-            <Text level="small" color="muted">
-              (no response text returned)
-            </Text>
-          )
+          <Text level="small" className="whitespace-pre-wrap">
+            {data.responseText && data.responseText.trim().length > 0
+              ? data.responseText
+              : "(no response text returned)"}
+          </Text>
         ) : isError ? (
           <Text
             level="small"
@@ -251,16 +234,24 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
         <div className="flex flex-wrap gap-1.5 items-center">
           {statusBadge(data.status)}
-          {data.queryType && (
-            <Badge variant="secondary">type: {String(data.queryType)}</Badge>
-          )}
-          {data.recordCount != null && (
+          {data.resultRowCount != null && (
             <Badge variant="secondary">
-              {String(data.recordCount)} record
-              {String(data.recordCount) === "1" ? "" : "s"}
+              {String(data.resultRowCount)} row
+              {String(data.resultRowCount) === "1" ? "" : "s"}
             </Badge>
           )}
-          {dbs && <Badge variant="secondary">db: {dbs}</Badge>}
+          {data.subQueryCount != null && data.subQueryCount > 1 && (
+            <Badge variant="secondary">
+              {String(data.subQueryCount)} sub-queries
+            </Badge>
+          )}
+          {Array.isArray(data.appliedWhereClauses) &&
+            data.appliedWhereClauses.length > 0 && (
+              <Badge variant="secondary">
+                {data.appliedWhereClauses.length} filter
+                {data.appliedWhereClauses.length === 1 ? "" : "s"}
+              </Badge>
+            )}
           {data.stage && (
             <Badge variant="outline">
               {data.stage.replace(/^AUTOMATION_STAGE_/, "").toLowerCase()}
@@ -289,9 +280,6 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
               value={`${dayjs(data.updatedAt).format("MMM D, YYYY h:mm A")} (${dayjs(data.updatedAt).fromNow()})`}
             />
           )}
-          {data.requesterEmail && (
-            <MetaRow label="Requester" value={data.requesterEmail} />
-          )}
           <MetaRow label="Run ID" value={data.runId} mono />
         </div>
       </div>
@@ -319,6 +307,20 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
           icon="Code"
           title="Generated SQL"
           subtitle="Queries executed against the source databases"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopySql();
+              }}
+              title="Copy SQL to clipboard"
+            >
+              <Icon type={copied ? "Check" : "Copy"} size="sm" />
+              <span className="ml-1.5">{copied ? "Copied" : "Copy"}</span>
+            </Button>
+          }
         >
           <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
             {data.generatedSql}
@@ -326,37 +328,49 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
         </Section>
       )}
 
-      {Array.isArray(data.tableData) && data.tableData.length > 0 && (
+      {Array.isArray(data.appliedWhereClauses) &&
+        data.appliedWhereClauses.length > 0 && (
+          <Section
+            icon="Filter"
+            title="Applied WHERE clauses"
+            subtitle={`${data.appliedWhereClauses.length} filter${data.appliedWhereClauses.length === 1 ? "" : "s"} applied to the query`}
+          >
+            <ul className="space-y-1">
+              {data.appliedWhereClauses.map((w, i) => (
+                <li key={i}>
+                  <code className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted text-foreground">
+                    {String(w)}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
+      {hasTable && (
         <Section
           icon="Table"
           title="Result Table"
-          subtitle={`${data.tableData.length} row${data.tableData.length === 1 ? "" : "s"}`}
+          subtitle={`${data.tableData!.length} row${data.tableData!.length === 1 ? "" : "s"}`}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadCsv(
+                  rowsToCsv(data.tableData ?? []),
+                  `query-${data.runId}.csv`,
+                );
+              }}
+            >
+              <Icon type="Download" size="sm" />
+              <span className="ml-1.5">Download CSV</span>
+            </Button>
+          }
         >
-          <ResultTable rows={data.tableData} />
+          <ResultTable rows={data.tableData ?? []} />
         </Section>
-      )}
-
-      {hasCsv && (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm flex items-center justify-between gap-4">
-          <div>
-            <Text level="small" className="font-semibold">
-              CSV export
-            </Text>
-            <Text level="xSmall" color="muted">
-              Download the full result set produced by this run.
-            </Text>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              downloadCsv(data.csvData ?? "", `db-agent-${data.runId}.csv`)
-            }
-          >
-            <Icon type="Download" size="sm" />
-            <span className="ml-1.5">Download CSV</span>
-          </Button>
-        </div>
       )}
     </div>
   );
@@ -390,11 +404,13 @@ function Section({
   title,
   subtitle,
   children,
+  action,
 }: {
   icon: string;
   title: string;
   subtitle: string;
   children: React.ReactNode;
+  action?: React.ReactNode;
 }): React.ReactElement {
   const [open, setOpen] = useState<boolean>(true);
   return (
@@ -418,11 +434,14 @@ function Section({
             </Text>
           </div>
         </div>
-        <Icon
-          type="ChevronDown"
-          size="sm"
-          className={`text-muted-foreground transition-transform duration-200 shrink-0 ${open ? "rotate-180" : ""}`}
-        />
+        <div className="flex items-center gap-2 shrink-0">
+          {action}
+          <Icon
+            type="ChevronDown"
+            size="sm"
+            className={`text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          />
+        </div>
       </button>
       {open && (
         <div className="border-t border-border px-5 py-4">{children}</div>

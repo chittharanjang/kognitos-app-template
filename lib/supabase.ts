@@ -31,4 +31,9 @@ export const TABLES = {
   // "Test" button. Populated from Kognitos run history; see
   // supabase/migrations/00000000000005_db_agent_test_questions.sql.
   dbAgentTestQuestions: "db_agent_test_questions",
+  // Curated SQL Query Generator (Query app) test-question library used by the
+  // /query/runs page's "Test" button. Populated from Kognitos run history of
+  // the Query automation; see
+  // supabase/migrations/00000000000006_query_test_questions.sql.
+  queryTestQuestions: "query_test_questions",
 } as const;

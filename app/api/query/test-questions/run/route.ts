@@ -1,5 +1,5 @@
 import { invokeAutomation, pollRun } from "@/lib/kognitos";
-import { getAmaAgentAutomationId } from "@/lib/ama-agent";
+import { getSqlQueryGeneratorAutomationId } from "@/lib/query-assistant";
 import { supabaseAdmin, TABLES } from "@/lib/supabase";
 import { sseFrame } from "@/lib/sse";
 
@@ -14,11 +14,10 @@ export const maxDuration = 300;
 const HARD_CONCURRENCY = 25;
 const POLL_TIMEOUT_MS = 240_000;
 const POLL_INTERVAL_MS = 2_000;
-const REQUESTER_EMAIL = "ama-runs-test@kognitos-demo.local";
 
 // The Test button always exercises the production stage so results match
 // what real users would see, regardless of any in-progress draft work on the
-// DB Agent automation. The chat (/ama-agent) keeps using its own stage.
+// SQL Query Generator. The interactive /query chat keeps using its own stage.
 const TEST_BUTTON_STAGE = "AUTOMATION_STAGE_PUBLISHED" as const;
 
 interface RequestBody {
@@ -47,7 +46,7 @@ export async function POST(request: Request): Promise<Response> {
   );
 
   const select = supabaseAdmin
-    .from(TABLES.dbAgentTestQuestions)
+    .from(TABLES.queryTestQuestions)
     .select("id, question");
   const filtered =
     body.questionIds && body.questionIds.length > 0
@@ -62,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
     if (isMissingTable) {
       return jsonError(
         412,
-        "Table db_agent_test_questions does not exist. Apply migration 00000000000005_db_agent_test_questions.sql, then click 'Load questions'.",
+        "Table query_test_questions does not exist. Apply migration 00000000000006_query_test_questions.sql, then click 'Load questions'.",
         { code, needsMigration: true },
       );
     }
@@ -73,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
     .map((r) => (r as { question: string }).question.trim())
     .filter((q): q is string => q.length > 0);
 
-  const automationId = getAmaAgentAutomationId();
+  const automationId = getSqlQueryGeneratorAutomationId();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -116,12 +115,11 @@ export async function POST(request: Request): Promise<Response> {
           const question = questions[idx];
           const t0 = Date.now();
 
+          // SQL Query Generator only takes a single `User Query` input —
+          // no requester email field, unlike the DB Agent automation.
           const inv = await invokeAutomation(
             automationId,
-            {
-              "User Query": { text: question },
-              "Requester Email": { text: REQUESTER_EMAIL },
-            },
+            { "User Query": { text: question } },
             TEST_BUTTON_STAGE,
           );
           if (!inv.runId) {

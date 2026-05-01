@@ -200,6 +200,19 @@ export const QUERY_CATEGORIES: QueryCategory[] = [
     ],
   },
   {
+    title: "Set Difference / Anti-Join Queries",
+    description:
+      'Cross-database "present in X but not in Y" questions. Returns distinct FIDUCIARY_IDs that exist in the left source and are missing from the right source. Trigger phrases include "not in", "missing from", "only in", "unique to", "who have no", "with no". Empty results respond with "No records were found based on the provided criteria."',
+    dbTags: ["FIDO", "WealthX", "Profile Status"],
+    queries: [
+      "Share the clients list which is present in accounts table and not in clients_fido table.",
+      "Which FIDUCIARY_IDs exist in WealthX but not in FIDO?",
+      "List clients in clients_fido who have no accounts in WealthX.",
+      "Show profiles in profile_status that are missing from clients_fido.",
+      "Which clients in FIDO are unique to FIDO and not present in accounts?",
+    ],
+  },
+  {
     title: "No Data Found Scenarios",
     description:
       'Respond professionally: "No records were found based on the provided criteria." Never leave blank, never expose SQL errors.',
