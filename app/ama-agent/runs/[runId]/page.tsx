@@ -17,6 +17,7 @@ import {
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { MarkdownText } from "../../../components/markdown-text";
+import { MultiQuestionAnswer } from "../../../components/multi-question-answer";
 
 dayjs.extend(relativeTime);
 
@@ -228,7 +229,11 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
         </div>
         {isCompleted ? (
           data.responseText && data.responseText.trim().length > 0 ? (
-            <MarkdownText text={data.responseText} />
+            <MultiQuestionAnswer
+              text={data.responseText}
+              subQuestions={data.subQuestions}
+              fallback={<MarkdownText text={data.responseText} />}
+            />
           ) : (
             <Text level="small" color="muted">
               (no response text returned)

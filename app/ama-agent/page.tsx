@@ -13,6 +13,7 @@ import {
   AlertDescription,
 } from "@kognitos/lattice";
 import { MarkdownText } from "../components/markdown-text";
+import { MultiQuestionAnswer } from "../components/multi-question-answer";
 
 interface AmaResult {
   status: string;
@@ -343,24 +344,30 @@ function LoadingIndicator({ entry }: { entry: ChatEntry }) {
 }
 
 function ResultCard({ result, elapsed }: { result: AmaResult; elapsed: number }) {
-  const [showSubQ, setShowSubQ] = useState(false);
-
   const dbs = Array.isArray(result.databasesQueried)
     ? result.databasesQueried.join(", ")
     : (result.databasesQueried ?? null);
 
+  const singleAnswer = (
+    <div className="rounded-2xl px-4 py-3 bg-muted/50 shadow-sm">
+      {result.responseText && result.responseText.trim().length > 0 ? (
+        <MarkdownText text={result.responseText} />
+      ) : (
+        <Text level="small" color="muted">
+          No response text returned.
+        </Text>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] w-full space-y-3">
-        <div className="rounded-2xl px-4 py-3 bg-muted/50 shadow-sm">
-          {result.responseText && result.responseText.trim().length > 0 ? (
-            <MarkdownText text={result.responseText} />
-          ) : (
-            <Text level="small" color="muted">
-              No response text returned.
-            </Text>
-          )}
-        </div>
+        <MultiQuestionAnswer
+          text={result.responseText}
+          subQuestions={result.subQuestions}
+          fallback={singleAnswer}
+        />
 
         <div className="flex flex-wrap gap-1.5 px-1 items-center">
           {result.queryType && (
@@ -390,30 +397,6 @@ function ResultCard({ result, elapsed }: { result: AmaResult; elapsed: number })
           </Link>
         </div>
 
-        {Array.isArray(result.subQuestions) && result.subQuestions.length > 1 && (
-          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
-            <button
-              onClick={() => setShowSubQ(!showSubQ)}
-              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
-            >
-              <Text level="xSmall" className="font-medium">
-                Sub-questions ({result.subQuestions.length})
-              </Text>
-              <Icon type={showSubQ ? "ChevronUp" : "ChevronDown"} size="sm" className="text-muted-foreground" />
-            </button>
-            {showSubQ && (
-              <ul className="px-4 py-3 border-t border-border bg-muted/20 space-y-1 list-disc list-inside">
-                {result.subQuestions.map((q, i) => (
-                  <li key={i}>
-                    <Text level="xSmall" color="muted" className="inline">
-                      {String(q)}
-                    </Text>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
