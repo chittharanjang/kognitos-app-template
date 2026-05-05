@@ -16,6 +16,11 @@ import {
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { readSseStream } from "@/lib/sse";
+import {
+  VerdictToggle,
+  NotesField,
+  type Verdict,
+} from "@/app/components/verdict-controls";
 
 dayjs.extend(relativeTime);
 
@@ -35,7 +40,16 @@ interface QueryRunSummary {
   kognitosUrl: string;
 }
 
+interface VerdictEntry {
+  verdict: Verdict;
+  notes: string | null;
+  question: string | null;
+  answer: string | null;
+  updatedAt: string | null;
+}
+
 type StatusFilter = "all" | "completed" | "failed" | "other";
+type VerdictFilter = "all" | "correct" | "incorrect";
 
 const PAGE_SIZE = 25;
 
@@ -101,6 +115,10 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>("all");
+
+  const [verdicts, setVerdicts] = useState<Record<string, VerdictEntry>>({});
+  const [verdictError, setVerdictError] = useState<string | null>(null);
 
   const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [questionLoadError, setQuestionLoadError] = useState<string | null>(
@@ -136,6 +154,26 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
       };
       setNextPageToken(data.nextPageToken);
       setRuns((prev) => (append ? [...prev, ...data.runs] : data.runs));
+
+      // Make sure every visible run has an explicit row in the verdict
+      // table so the toggle UI always reflects a real value (default
+      // 'correct'). Idempotent on the server side; failures are silent
+      // because they shouldn't block the runs list from rendering.
+      try {
+        await fetch("/api/query/runs/verdicts/bootstrap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runs: data.runs.map((r) => ({
+              runId: r.runId,
+              question: r.question,
+              answer: r.answer,
+            })),
+          }),
+        });
+      } catch {
+        // ignore bootstrap failures — the user can still view the list
+      }
     },
     [],
   );
@@ -164,6 +202,108 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
       setLoadingMore(false);
     }
   }, [loadPage, nextPageToken]);
+
+  const loadVerdicts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/query/runs/verdicts", {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as {
+        verdicts?: Record<string, VerdictEntry>;
+        error?: string;
+        needsMigration?: boolean;
+      };
+      if (!res.ok && !data.needsMigration) {
+        setVerdictError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setVerdicts(data.verdicts ?? {});
+      setVerdictError(data.needsMigration ? (data.error ?? null) : null);
+    } catch (e) {
+      setVerdictError(
+        e instanceof Error ? e.message : "Failed to load verdicts",
+      );
+    }
+  }, []);
+
+  const saveVerdictRow = useCallback(
+    async (
+      run: QueryRunSummary,
+      next: { verdict: Verdict; notes: string | null },
+    ) => {
+      const previous = verdicts[run.runId] ?? null;
+      const optimistic: VerdictEntry = {
+        verdict: next.verdict,
+        notes: next.notes,
+        question: run.question,
+        answer: run.answer,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setVerdicts((prev) => ({ ...prev, [run.runId]: optimistic }));
+
+      try {
+        const res = await fetch("/api/query/runs/verdicts", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runId: run.runId,
+            question: run.question,
+            answer: run.answer,
+            verdict: next.verdict,
+            notes: next.notes,
+          }),
+        });
+        if (!res.ok) {
+          let message = `HTTP ${res.status}`;
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data.error) message = data.error;
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
+        }
+        setVerdictError(null);
+      } catch (e) {
+        setVerdicts((prev) => {
+          const copy = { ...prev };
+          if (previous) {
+            copy[run.runId] = previous;
+          } else {
+            delete copy[run.runId];
+          }
+          return copy;
+        });
+        setVerdictError(
+          e instanceof Error ? e.message : "Failed to save verdict",
+        );
+      }
+    },
+    [verdicts],
+  );
+
+  const setVerdict = useCallback(
+    (run: QueryRunSummary, next: Verdict) => {
+      const current = verdicts[run.runId];
+      saveVerdictRow(run, {
+        verdict: next,
+        notes: current?.notes ?? null,
+      });
+    },
+    [verdicts, saveVerdictRow],
+  );
+
+  const setNotes = useCallback(
+    (run: QueryRunSummary, notes: string | null) => {
+      const current = verdicts[run.runId];
+      saveVerdictRow(run, {
+        verdict: current?.verdict ?? "correct",
+        notes,
+      });
+    },
+    [verdicts, saveVerdictRow],
+  );
 
   const refreshQuestionCount = useCallback(async () => {
     try {
@@ -338,7 +478,8 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
   useEffect(() => {
     refresh();
     refreshQuestionCount();
-  }, [refresh, refreshQuestionCount]);
+    loadVerdicts();
+  }, [refresh, refreshQuestionCount, loadVerdicts]);
 
   const counts = useMemo(() => {
     const c = { all: runs.length, completed: 0, failed: 0, other: 0 };
@@ -349,19 +490,33 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
     return c;
   }, [runs]);
 
+  const verdictCounts = useMemo(() => {
+    const c = { all: runs.length, correct: 0, incorrect: 0 };
+    for (const r of runs) {
+      const effective: Verdict = verdicts[r.runId]?.verdict ?? "correct";
+      if (effective === "correct") c.correct += 1;
+      else c.incorrect += 1;
+    }
+    return c;
+  }, [runs, verdicts]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return runs.filter((r) => {
       if (statusFilter !== "all" && bucketStatus(r.status) !== statusFilter) {
         return false;
       }
+      if (verdictFilter !== "all") {
+        const effective: Verdict = verdicts[r.runId]?.verdict ?? "correct";
+        if (effective !== verdictFilter) return false;
+      }
       if (q) {
-        const hay = `${r.question ?? ""} ${r.answer ?? ""} ${r.errorText ?? ""} ${r.generatedSqlPreview ?? ""} ${r.runId}`.toLowerCase();
+        const hay = `${r.question ?? ""} ${r.answer ?? ""} ${r.errorText ?? ""} ${r.generatedSqlPreview ?? ""} ${r.runId} ${verdicts[r.runId]?.notes ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [runs, statusFilter, search]);
+  }, [runs, statusFilter, verdictFilter, verdicts, search]);
 
   return (
     <div className="p-6 space-y-6 max-w-5xl">
@@ -425,6 +580,13 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
         <Alert variant="destructive">
           <AlertTitle>Test question library unavailable</AlertTitle>
           <AlertDescription>{questionLoadError}</AlertDescription>
+        </Alert>
+      )}
+
+      {verdictError && (
+        <Alert variant="destructive">
+          <AlertTitle>Verdicts unavailable</AlertTitle>
+          <AlertDescription>{verdictError}</AlertDescription>
         </Alert>
       )}
 
@@ -519,6 +681,29 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Text level="xSmall" color="muted" className="uppercase tracking-wide">
+          Verdict
+        </Text>
+        <FilterChip
+          label={`All (${verdictCounts.all})`}
+          active={verdictFilter === "all"}
+          onClick={() => setVerdictFilter("all")}
+        />
+        <FilterChip
+          label={`Correct (${verdictCounts.correct})`}
+          active={verdictFilter === "correct"}
+          onClick={() => setVerdictFilter("correct")}
+          tone="success"
+        />
+        <FilterChip
+          label={`Incorrect (${verdictCounts.incorrect})`}
+          active={verdictFilter === "incorrect"}
+          onClick={() => setVerdictFilter("incorrect")}
+          tone="destructive"
+        />
+      </div>
+
       {loading ? (
         <div className="space-y-3">
           <Skeleton className="h-32 w-full rounded-xl" />
@@ -546,7 +731,14 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
       ) : (
         <div className="space-y-3">
           {filtered.map((r) => (
-            <RunCard key={r.runId} run={r} />
+            <RunCard
+              key={r.runId}
+              run={r}
+              verdict={verdicts[r.runId]?.verdict ?? "correct"}
+              notes={verdicts[r.runId]?.notes ?? null}
+              onSetVerdict={setVerdict}
+              onSetNotes={setNotes}
+            />
           ))}
         </div>
       )}
@@ -577,7 +769,19 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
   );
 }
 
-function RunCard({ run }: { run: QueryRunSummary }): React.ReactElement {
+function RunCard({
+  run,
+  verdict,
+  notes,
+  onSetVerdict,
+  onSetNotes,
+}: {
+  run: QueryRunSummary;
+  verdict: Verdict;
+  notes: string | null;
+  onSetVerdict: (run: QueryRunSummary, next: Verdict) => void;
+  onSetNotes: (run: QueryRunSummary, notes: string | null) => void;
+}): React.ReactElement {
   const isCompleted = run.status === "completed";
   const isError = run.status === "failed" || run.status === "awaiting_guidance";
 
@@ -665,6 +869,35 @@ function RunCard({ run }: { run: QueryRunSummary }): React.ReactElement {
             {dayjs(run.createdAt).fromNow()}
           </Text>
         )}
+      </div>
+      <div
+        className="mt-3 pl-12 flex flex-wrap items-center gap-3"
+        onClick={(e) => e.preventDefault()}
+      >
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Verdict
+        </span>
+        <VerdictToggle
+          value={verdict}
+          onChange={(next) => onSetVerdict(run, next)}
+        />
+        {run.createdAt && (
+          <span
+            className="text-xs text-muted-foreground tabular-nums"
+            title={dayjs(run.createdAt).format("YYYY-MM-DD HH:mm:ss")}
+          >
+            {dayjs(run.createdAt).format("MMM D, YYYY h:mm A")}
+          </span>
+        )}
+      </div>
+      <div
+        className="mt-2 pl-12"
+        onClick={(e) => e.preventDefault()}
+      >
+        <NotesField
+          value={notes}
+          onSave={(next) => onSetNotes(run, next)}
+        />
       </div>
     </Link>
   );

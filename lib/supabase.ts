@@ -36,4 +36,17 @@ export const TABLES = {
   // the Query automation; see
   // supabase/migrations/00000000000006_query_test_questions.sql.
   queryTestQuestions: "query_test_questions",
+  // Per-run reviewer verdicts (correct/incorrect) for the Query Run History.
+  // One row per Kognitos run id; stores a snapshot of question + answer plus
+  // the verdict. See supabase/migrations/00000000000007_query_run_verdicts.sql.
+  queryRunVerdicts: "query_run_verdicts",
+  // Per-run reviewer verdicts for the DB Agent (ama-agent) Run History.
+  // Mirror of queryRunVerdicts for the DB Agent automation. See
+  // supabase/migrations/00000000000008_db_agent_run_verdicts.sql.
+  dbAgentRunVerdicts: "db_agent_run_verdicts",
+  // Lightweight per-run index that powers the "Run History Groups" view —
+  // one row per Kognitos run with a normalized `question_norm` and a stable
+  // `question_id` so the list endpoint can group + sort in SQL without
+  // re-paging Kognitos. See supabase/migrations/00000000000010_db_agent_run_index.sql.
+  dbAgentRunIndex: "db_agent_run_index",
 } as const;

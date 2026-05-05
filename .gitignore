@@ -15,3 +15,6 @@ scripts/quill-spy-*.txt
 scripts/output/*
 !scripts/output/db-agent-test-results.json
 !scripts/output/db-agent-test-report.md
+
+# Next.js incremental TypeScript build cache — local-only, never useful in source.
+tsconfig.tsbuildinfo

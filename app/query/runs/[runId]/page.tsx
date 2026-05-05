@@ -15,6 +15,11 @@ import {
 } from "@kognitos/lattice";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import {
+  VerdictToggle,
+  NotesField,
+  type Verdict,
+} from "@/app/components/verdict-controls";
 
 dayjs.extend(relativeTime);
 
@@ -182,6 +187,131 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
     data.status === "failed" || data.status === "awaiting_guidance";
   const [copied, setCopied] = useState<boolean>(false);
 
+  const [verdict, setVerdictState] = useState<Verdict>("correct");
+  const [notes, setNotesState] = useState<string | null>(null);
+  const [verdictUpdatedAt, setVerdictUpdatedAt] = useState<string | null>(null);
+  const [verdictLoading, setVerdictLoading] = useState<boolean>(true);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
+  const [verdictSaving, setVerdictSaving] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setVerdictLoading(true);
+
+    // Bootstrap the row (idempotent) before reading, so refreshing a fresh
+    // run's detail page also yields a default 'correct' row immediately.
+    fetch("/api/query/runs/verdicts/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runs: [
+          {
+            runId: data.runId,
+            question: data.question,
+            answer: data.responseText ?? null,
+          },
+        ],
+      }),
+    })
+      .catch(() => {
+        // ignore bootstrap failures — the read below will still render
+      })
+      .then(() => fetch("/api/query/runs/verdicts", { cache: "no-store" }))
+      .then(async (res) => {
+        if (!res) return;
+        const json = (await res.json()) as {
+          verdicts?: Record<
+            string,
+            {
+              verdict: Verdict;
+              notes: string | null;
+              question: string | null;
+              answer: string | null;
+              updatedAt: string | null;
+            }
+          >;
+          error?: string;
+          needsMigration?: boolean;
+        };
+        if (cancelled) return;
+        if (!res.ok && !json.needsMigration) {
+          setVerdictError(json.error ?? `HTTP ${res.status}`);
+          return;
+        }
+        const entry = json.verdicts?.[data.runId] ?? null;
+        setVerdictState(entry?.verdict ?? "correct");
+        setNotesState(entry?.notes ?? null);
+        setVerdictUpdatedAt(entry?.updatedAt ?? null);
+        setVerdictError(json.needsMigration ? (json.error ?? null) : null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setVerdictError(
+          e instanceof Error ? e.message : "Failed to load verdict",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setVerdictLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.runId, data.question, data.responseText]);
+
+  const saveVerdictRow = async (next: {
+    verdict: Verdict;
+    notes: string | null;
+  }): Promise<void> => {
+    const previousVerdict = verdict;
+    const previousNotes = notes;
+    const previousUpdatedAt = verdictUpdatedAt;
+    setVerdictState(next.verdict);
+    setNotesState(next.notes);
+    setVerdictUpdatedAt(new Date().toISOString());
+    setVerdictSaving(true);
+    try {
+      const res = await fetch("/api/query/runs/verdicts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: data.runId,
+          question: data.question,
+          answer: data.responseText ?? null,
+          verdict: next.verdict,
+          notes: next.notes,
+        }),
+      });
+      if (!res.ok) {
+        let message = `HTTP ${res.status}`;
+        try {
+          const json = (await res.json()) as { error?: string };
+          if (json.error) message = json.error;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
+      }
+      setVerdictError(null);
+    } catch (e) {
+      setVerdictState(previousVerdict);
+      setNotesState(previousNotes);
+      setVerdictUpdatedAt(previousUpdatedAt);
+      setVerdictError(
+        e instanceof Error ? e.message : "Failed to save verdict",
+      );
+    } finally {
+      setVerdictSaving(false);
+    }
+  };
+
+  const handleSetVerdict = (next: Verdict): void => {
+    void saveVerdictRow({ verdict: next, notes });
+  };
+
+  const handleSetNotes = (next: string | null): void => {
+    void saveVerdictRow({ verdict, notes: next });
+  };
+
   const handleCopySql = async (): Promise<void> => {
     if (!data.generatedSql) return;
     try {
@@ -266,6 +396,42 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
             <Icon type="ArrowUpRight" size="sm" />
             View in Kognitos
           </a>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Verdict
+            </span>
+            <VerdictToggle
+              value={verdict}
+              disabled={verdictLoading || verdictSaving}
+              onChange={handleSetVerdict}
+            />
+            {data.createdAt && (
+              <span
+                className="text-xs text-muted-foreground tabular-nums"
+                title={dayjs(data.createdAt).format("YYYY-MM-DD HH:mm:ss")}
+              >
+                Run · {dayjs(data.createdAt).format("MMM D, YYYY h:mm A")}
+              </span>
+            )}
+            {verdictUpdatedAt && (
+              <Text level="xSmall" color="muted">
+                Last marked {dayjs(verdictUpdatedAt).fromNow()}
+              </Text>
+            )}
+            {verdictError && (
+              <Text level="xSmall" className="text-red-600 dark:text-red-400">
+                {verdictError}
+              </Text>
+            )}
+          </div>
+          <NotesField
+            value={notes}
+            onSave={handleSetNotes}
+            disabled={verdictLoading || verdictSaving}
+            multiline
+          />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
           {data.createdAt && (
@@ -515,3 +681,4 @@ function formatCell(v: unknown): string {
     return String(v);
   }
 }
+

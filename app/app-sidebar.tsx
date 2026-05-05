@@ -34,16 +34,22 @@ type NavItem = {
     | "Database"
     | "BookOpen"
     | "FlaskConical"
-    | "History";
+    | "History"
+    | "Layers3";
   exact?: boolean;
 };
 
 const TOP_ITEMS: NavItem[] = [
   { href: "/ama-agent", label: "DB Agent", icon: "Sparkles", exact: true },
+  { href: "/ama-agent/runs", label: "Run History", icon: "History" },
+  {
+    href: "/ama-agent/run-groups",
+    label: "Run History Groups",
+    icon: "Layers3",
+  },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [
-  { href: "/ama-agent/runs", label: "Run History", icon: "History" },
   { href: "/query", label: "Query", icon: "Search", exact: true },
   { href: "/query/runs", label: "Query Runs", icon: "History" },
   { href: "/chat", label: "Chat", icon: "MessageSquare" },
@@ -78,7 +84,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 export function AppSidebar() {
   const pathname = usePathname();
   const toolsActive = TOOLS_ITEMS.some((i) => isActive(pathname, i));
-  const [toolsOpen, setToolsOpen] = useState<boolean>(toolsActive || true);
+  const [toolsOpen, setToolsOpen] = useState<boolean>(toolsActive);
 
   return (
     <Sidebar>
