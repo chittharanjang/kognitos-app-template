@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, TABLES } from "@/lib/supabase";
+import {
+  answerPreviewOf,
+  normalizeQuestion,
+  questionIdOf,
+} from "@/lib/run-groups";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +19,12 @@ interface BootstrapInput {
   runId: string;
   question?: string | null;
   answer?: string | null;
+  createdAt?: string | null;
+  status?: string | null;
+  resultRowCount?: number | null;
+  appliedWhereClauseCount?: number | null;
+  stage?: string | null;
+  stageVersion?: string | null;
 }
 
 interface ExistingRow {
@@ -23,15 +34,18 @@ interface ExistingRow {
 /**
  * POST /api/query/runs/verdicts/bootstrap
  *
- * Body: { runs: [{ runId, question?, answer? }, ...] }
+ * Body: { runs: [{ runId, question?, answer?, createdAt?, status?,
+ *                  resultRowCount?, appliedWhereClauseCount?,
+ *                  stage?, stageVersion? }, ...] }
  *
- * Ensures every run in the request has a row in query_run_verdicts. Existing
- * rows are left untouched (their verdict and notes are preserved); missing
- * rows are inserted with verdict='correct' as the default.
+ * Two responsibilities:
+ *  1. Ensure every run in the request has a row in query_run_verdicts
+ *     (default verdict='correct'); existing rows are left untouched.
+ *  2. Upsert each run into query_run_index so /query/run-groups stays fresh
+ *     as users browse the flat list. Failures here are swallowed because the
+ *     verdict bootstrap is the primary contract.
  *
- * Idempotent — safe to call repeatedly. Used by the Run History list page
- * after each `loadPage()` so visible runs always have an explicit verdict
- * row backing the new toggle UI.
+ * Idempotent — safe to call repeatedly.
  */
 export async function POST(request: Request) {
   if (!supabaseAdmin) {
@@ -66,6 +80,12 @@ export async function POST(request: Request) {
       runId?: unknown;
       question?: unknown;
       answer?: unknown;
+      createdAt?: unknown;
+      status?: unknown;
+      resultRowCount?: unknown;
+      appliedWhereClauseCount?: unknown;
+      stage?: unknown;
+      stageVersion?: unknown;
     };
     if (typeof obj.runId !== "string") continue;
     const runId = obj.runId.trim();
@@ -74,6 +94,21 @@ export async function POST(request: Request) {
       runId,
       question: typeof obj.question === "string" ? obj.question : null,
       answer: typeof obj.answer === "string" ? obj.answer : null,
+      createdAt: typeof obj.createdAt === "string" ? obj.createdAt : null,
+      status: typeof obj.status === "string" ? obj.status : null,
+      resultRowCount:
+        typeof obj.resultRowCount === "number" &&
+        Number.isFinite(obj.resultRowCount)
+          ? obj.resultRowCount
+          : null,
+      appliedWhereClauseCount:
+        typeof obj.appliedWhereClauseCount === "number" &&
+        Number.isFinite(obj.appliedWhereClauseCount)
+          ? obj.appliedWhereClauseCount
+          : null,
+      stage: typeof obj.stage === "string" ? obj.stage : null,
+      stageVersion:
+        typeof obj.stageVersion === "string" ? obj.stageVersion : null,
     });
   }
 
@@ -121,42 +156,69 @@ export async function POST(request: Request) {
       notes: null,
     }));
 
-  if (toInsert.length === 0) {
-    return NextResponse.json({
-      inserted: 0,
-      alreadyPresent: existing.size,
-    });
-  }
+  if (toInsert.length > 0) {
+    const { error: insertError } = await supabaseAdmin
+      .from(TABLES.queryRunVerdicts)
+      .insert(toInsert);
 
-  const { error: insertError } = await supabaseAdmin
-    .from(TABLES.queryRunVerdicts)
-    .insert(toInsert);
-
-  if (insertError) {
-    const code = (insertError as { code?: string }).code;
-    const missing = isMissingTable(code);
-    // Race: another request inserted the same run_id between our SELECT and
-    // INSERT. Treat unique-violation (23505) as success since the goal was
-    // "ensure a row exists" and that's now true.
-    if (code === "23505") {
-      return NextResponse.json({
-        inserted: 0,
-        alreadyPresent: existing.size + toInsert.length,
-        note: "all rows already existed (unique-violation race)",
-      });
+    if (insertError) {
+      const code = (insertError as { code?: string }).code;
+      const missing = isMissingTable(code);
+      // 23505 = unique-violation race; treat as success.
+      if (code !== "23505") {
+        return NextResponse.json(
+          {
+            error: missing ? MIGRATION_HINT : insertError.message,
+            code,
+            needsMigration: missing,
+          },
+          { status: missing ? 503 : 500 },
+        );
+      }
     }
-    return NextResponse.json(
-      {
-        error: missing ? MIGRATION_HINT : insertError.message,
-        code,
-        needsMigration: missing,
-      },
-      { status: missing ? 503 : 500 },
-    );
   }
+
+  await upsertRunIndex(inputs);
 
   return NextResponse.json({
     inserted: toInsert.length,
     alreadyPresent: existing.size,
   });
+}
+
+/**
+ * Best-effort upsert into query_run_index. Failures are swallowed (logged to
+ * the server console) so that the primary verdict bootstrap never fails on
+ * a missing index migration / transient errors.
+ */
+async function upsertRunIndex(inputs: BootstrapInput[]): Promise<void> {
+  if (!supabaseAdmin) return;
+
+  const rows = inputs
+    .filter((i) => i.question && normalizeQuestion(i.question).length > 0)
+    .map((i) => ({
+      run_id: i.runId,
+      question: i.question as string,
+      question_norm: normalizeQuestion(i.question),
+      question_id: questionIdOf(i.question),
+      created_at: i.createdAt ?? new Date().toISOString(),
+      status: i.status ?? "unknown",
+      result_row_count: i.resultRowCount,
+      applied_where_clause_count: i.appliedWhereClauseCount,
+      answer_preview: answerPreviewOf(i.answer),
+      stage: i.stage,
+      stage_version: i.stageVersion,
+    }));
+
+  if (rows.length === 0) return;
+
+  const { error } = await supabaseAdmin
+    .from(TABLES.queryRunIndex)
+    .upsert(rows, { onConflict: "run_id" });
+
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (isMissingTable(code)) return;
+    console.warn("[query-run-index] upsert failed:", error.message);
+  }
 }

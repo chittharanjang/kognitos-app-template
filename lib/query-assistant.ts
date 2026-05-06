@@ -1,5 +1,12 @@
 import { decodeArrowTable } from "@/lib/arrow";
-import { invokeAutomation, ORG_ID, parseOutputValue, req, WORKSPACE_ID } from "@/lib/kognitos";
+import {
+  invokeAutomation,
+  kognitosRunUrl,
+  ORG_ID,
+  parseOutputValue,
+  req,
+  WORKSPACE_ID,
+} from "@/lib/kognitos";
 
 /**
  * Kognitos automation: **SQL Query Generator** (natural language → SQL, same as the Query page).
@@ -183,4 +190,149 @@ export function chunkTextForStream(text: string, chunkSize = 400): string[] {
     chunks.push(text.slice(i, i + chunkSize));
   }
   return chunks;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Per-run detail fetcher (Query app)                                */
+/* ------------------------------------------------------------------ */
+
+export interface QueryRunDetail {
+  status: "completed" | "failed" | "awaiting_guidance" | "running" | "error";
+  runId: string;
+  stage: string | null;
+  /** Automation version snapshot at the time of the run (e.g. "5.8"). */
+  stageVersion: string | null;
+  question: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  kognitosUrl: string;
+  responseText?: string | null;
+  generatedSql?: string | null;
+  questionCount?: number | null;
+  subQuestions?: string[] | null;
+  subQueryCount?: number | null;
+  resultRowCount?: number | null;
+  appliedWhereClauses?: string[] | null;
+  tableData?: Record<string, unknown>[] | null;
+  error?: string | null;
+  state?: string | null;
+}
+
+interface RawQueryRun {
+  name?: string;
+  create_time?: string;
+  update_time?: string;
+  stage?: string;
+  stage_version?: string;
+  user_inputs?: Record<string, Record<string, unknown>>;
+  state?: {
+    completed?: { outputs?: Record<string, unknown> };
+    failed?: { error?: { description?: string } };
+    awaiting_guidance?: { exception?: string; description?: string };
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Fetch and parse a single SQL Query Generator run from Kognitos. Mirrors the
+ * shape of `fetchAmaAgentRunDetail` in lib/ama-agent.ts so the Query app's
+ * compare endpoint can reuse the same UI components.
+ */
+export async function fetchQueryRunDetail(
+  runId: string,
+): Promise<QueryRunDetail> {
+  const automationId = getSqlQueryGeneratorAutomationId();
+  const res = await req(
+    `/organizations/${ORG_ID}/workspaces/${WORKSPACE_ID}/automations/${automationId}/runs/${runId}`,
+  );
+  if (!res.ok) {
+    return {
+      status: "error",
+      runId,
+      stage: null,
+      stageVersion: null,
+      question: null,
+      createdAt: null,
+      updatedAt: null,
+      kognitosUrl: kognitosRunUrl(runId, automationId),
+      error: `Failed to fetch run: ${res.status}`,
+    };
+  }
+  const data = (await res.json()) as RawQueryRun;
+
+  const userQuery = data.user_inputs?.["User Query"];
+  const question =
+    userQuery && typeof userQuery.text === "string"
+      ? (userQuery.text as string)
+      : null;
+
+  const baseMeta = {
+    runId,
+    stage: data.stage ?? null,
+    stageVersion: data.stage_version ?? null,
+    question,
+    createdAt: data.create_time ?? null,
+    updatedAt: data.update_time ?? null,
+    kognitosUrl: kognitosRunUrl(runId, automationId),
+  } as const;
+
+  if (data.state?.completed) {
+    const rawOutputs = (data.state.completed.outputs ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const outputs: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(rawOutputs)) {
+      outputs[key] = parseOutputValue(val as Record<string, unknown>);
+    }
+
+    let tableData: Record<string, unknown>[] | null = null;
+    for (const val of Object.values(rawOutputs) as Array<
+      Record<string, unknown>
+    >) {
+      const b64 = (val?.table as Record<string, Record<string, string>>)
+        ?.inline?.data;
+      if (b64) {
+        try {
+          tableData = decodeArrowTable(b64);
+        } catch {
+          tableData = null;
+        }
+        break;
+      }
+    }
+
+    return {
+      status: "completed",
+      ...baseMeta,
+      responseText: (outputs.response_text as string | null) ?? null,
+      generatedSql: (outputs.generated_sql as string | null) ?? null,
+      questionCount: (outputs.question_count as number | null) ?? null,
+      subQuestions: (outputs.sub_questions as string[] | null) ?? null,
+      subQueryCount: (outputs.sub_query_count as number | null) ?? null,
+      resultRowCount: (outputs.result_row_count as number | null) ?? null,
+      appliedWhereClauses:
+        (outputs.applied_where_clauses as string[] | null) ?? null,
+      tableData,
+    };
+  }
+  if (data.state?.failed) {
+    return {
+      status: "failed",
+      ...baseMeta,
+      error: data.state.failed.error?.description ?? "Run failed",
+    };
+  }
+  if (data.state?.awaiting_guidance) {
+    return {
+      status: "awaiting_guidance",
+      ...baseMeta,
+      error:
+        data.state.awaiting_guidance.exception ??
+        data.state.awaiting_guidance.description ??
+        "Awaiting guidance",
+    };
+  }
+  const currentState = Object.keys(data.state ?? {})[0] ?? "unknown";
+  return { status: "running", ...baseMeta, state: currentState };
 }

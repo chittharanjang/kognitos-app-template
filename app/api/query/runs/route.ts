@@ -15,6 +15,7 @@ interface RawRun {
   create_time?: string;
   update_time?: string;
   stage?: string;
+  stage_version?: string;
   user_inputs?: Record<string, Record<string, unknown>>;
   state?: {
     completed?: { outputs?: Record<string, Record<string, unknown>> };
@@ -29,6 +30,8 @@ export interface QueryRunSummary {
   createdAt: string | null;
   updatedAt: string | null;
   stage: string | null;
+  /** Automation version snapshot at the time of the run (e.g. "5.8"). */
+  stageVersion: string | null;
   status: string;
   question: string | null;
   answer: string | null;
@@ -108,6 +111,7 @@ function summarizeRun(raw: RawRun, automationId: string): QueryRunSummary {
     createdAt: raw.create_time ?? null,
     updatedAt: raw.update_time ?? null,
     stage: raw.stage ?? null,
+    stageVersion: raw.stage_version ?? null,
     status,
     question,
     answer,

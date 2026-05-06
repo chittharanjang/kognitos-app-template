@@ -20,6 +20,7 @@ import {
   NotesField,
   type Verdict,
 } from "@/app/components/verdict-controls";
+import { StageVersionBadge } from "@/app/components/stage-version-badge";
 
 dayjs.extend(relativeTime);
 
@@ -30,6 +31,7 @@ interface RunDetail {
   createdAt: string | null;
   updatedAt: string | null;
   stage: string | null;
+  stageVersion: string | null;
   kognitosUrl: string;
   responseText?: string | null;
   generatedSql?: string | null;
@@ -209,6 +211,13 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
             runId: data.runId,
             question: data.question,
             answer: data.responseText ?? null,
+            createdAt: data.createdAt,
+            status: data.status,
+            resultRowCount: data.resultRowCount ?? null,
+            appliedWhereClauseCount:
+              data.appliedWhereClauses?.length ?? null,
+            stage: data.stage,
+            stageVersion: data.stageVersion ?? null,
           },
         ],
       }),
@@ -382,11 +391,10 @@ function RunDetailView({ data }: { data: RunDetail }): React.ReactElement {
                 {data.appliedWhereClauses.length === 1 ? "" : "s"}
               </Badge>
             )}
-          {data.stage && (
-            <Badge variant="outline">
-              {data.stage.replace(/^AUTOMATION_STAGE_/, "").toLowerCase()}
-            </Badge>
-          )}
+          <StageVersionBadge
+            stage={data.stage}
+            stageVersion={data.stageVersion}
+          />
           <a
             href={data.kognitosUrl}
             target="_blank"

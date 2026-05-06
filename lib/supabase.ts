@@ -49,4 +49,10 @@ export const TABLES = {
   // `question_id` so the list endpoint can group + sort in SQL without
   // re-paging Kognitos. See supabase/migrations/00000000000010_db_agent_run_index.sql.
   dbAgentRunIndex: "db_agent_run_index",
+  // SQL Query Generator twin of dbAgentRunIndex. Stores the same
+  // (question_id, created_at, stage_version, status) shape but with
+  // result_row_count instead of record_count and no databases_queried column
+  // (Query is single-source). See
+  // supabase/migrations/00000000000012_query_run_index.sql.
+  queryRunIndex: "query_run_index",
 } as const;

@@ -31,7 +31,7 @@ const UAT_TOTAL = UAT_QUESTIONS.length;
 
 /* ─────────────────────────── types ─────────────────────────────────────── */
 
-interface RunGroupSummary {
+interface QueryRunGroupSummary {
   questionId: string;
   question: string;
   runCount: number;
@@ -40,15 +40,14 @@ interface RunGroupSummary {
   otherCount: number;
   firstRunAt: string;
   lastRunAt: string;
-  latestRecordCount: number | null;
-  recordCountTrend: (number | null)[];
+  latestRowCount: number | null;
+  rowCountTrend: (number | null)[];
   verdictTrend: ("correct" | "incorrect")[];
   latestStatus: string;
   latestAnswerPreview: string | null;
   latestStage: string | null;
   latestStageVersion: string | null;
   versionsSeen: string[];
-  databasesUsed: string[];
 }
 
 type SortMode = "recent" | "runs" | "failures";
@@ -65,7 +64,7 @@ interface UatResultEntry {
   categoryName: string;
   status: string;
   runId?: string;
-  recordCount?: number | null;
+  resultRowCount?: number | null;
   error?: string | null;
   durationMs: number;
 }
@@ -77,14 +76,15 @@ interface UatProgress {
   done: boolean;
   durationMs: number;
   results: UatResultEntry[];
+  /** category numbers being run in this session */
   categories: number[] | null;
 }
 
 /* ─────────────────────────── page ──────────────────────────────────────── */
 
-export default function RunGroupsPage(): React.ReactElement {
+export default function QueryRunGroupsPage(): React.ReactElement {
   const router = useRouter();
-  const [groups, setGroups] = useState<RunGroupSummary[]>([]);
+  const [groups, setGroups] = useState<QueryRunGroupSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [needsBuild, setNeedsBuild] = useState<boolean>(false);
@@ -105,62 +105,57 @@ export default function RunGroupsPage(): React.ReactElement {
   const [uatRunning, setUatRunning] = useState<boolean>(false);
   const [uatProgress, setUatProgress] = useState<UatProgress | null>(null);
   const [uatError, setUatError] = useState<string | null>(null);
+  /** category numbers selected in the UAT panel filter (null = all) */
   const [uatCategories, setUatCategories] = useState<Set<number>>(new Set());
   const uatLogRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Debounce typing → 250ms
+  // Debounce search → 250 ms
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
 
-  const load = useCallback(
-    async (q: string, s: SortMode) => {
-      setLoading(true);
-      setError(null);
-      setNeedsBuild(false);
-      try {
-        const params = new URLSearchParams();
-        if (q) params.set("search", q);
-        params.set("sort", s);
-        const res = await fetch(
-          `/api/ama-agent/run-groups?${params.toString()}`,
-          { cache: "no-store" },
-        );
-        const data = (await res.json()) as {
-          groups?: RunGroupSummary[];
-          error?: string;
-          needsMigration?: boolean;
-        };
-        if (!res.ok && !data.needsMigration) {
-          throw new Error(data.error ?? `HTTP ${res.status}`);
-        }
-        if (data.needsMigration) {
-          setNeedsBuild(true);
-          setError(data.error ?? null);
-          setGroups([]);
-          return;
-        }
-        const list = data.groups ?? [];
-        setGroups(list);
-        if (list.length === 0 && !q) {
-          setNeedsBuild(true);
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load groups");
-      } finally {
-        setLoading(false);
+  const load = useCallback(async (q: string, s: SortMode) => {
+    setLoading(true);
+    setError(null);
+    setNeedsBuild(false);
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("search", q);
+      params.set("sort", s);
+      const res = await fetch(`/api/query/run-groups?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as {
+        groups?: QueryRunGroupSummary[];
+        error?: string;
+        needsMigration?: boolean;
+      };
+      if (!res.ok && !data.needsMigration) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
       }
-    },
-    [],
-  );
+      if (data.needsMigration) {
+        setNeedsBuild(true);
+        setError(data.error ?? null);
+        setGroups([]);
+        return;
+      }
+      const list = data.groups ?? [];
+      setGroups(list);
+      if (list.length === 0 && !q) setNeedsBuild(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load groups");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     load(debouncedSearch, sort);
   }, [debouncedSearch, sort, load]);
 
-  // Close the typeahead dropdown when clicking outside.
+  // Close typeahead when clicking outside
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (!searchRef.current) return;
@@ -177,7 +172,7 @@ export default function RunGroupsPage(): React.ReactElement {
     setBuildResult(null);
     setError(null);
     try {
-      const res = await fetch("/api/ama-agent/run-groups/backfill", {
+      const res = await fetch("/api/query/run-groups/backfill", {
         method: "POST",
       });
       const data = (await res.json()) as {
@@ -211,9 +206,7 @@ export default function RunGroupsPage(): React.ReactElement {
     if (uatRunning) return;
 
     const categories =
-      uatCategories.size > 0
-        ? Array.from(uatCategories).sort((a, b) => a - b)
-        : null;
+      uatCategories.size > 0 ? Array.from(uatCategories).sort((a, b) => a - b) : null;
 
     const total = categories
       ? UAT_QUESTIONS.filter((q) => categories.includes(q.category)).length
@@ -239,7 +232,7 @@ export default function RunGroupsPage(): React.ReactElement {
 
     const startedAt = Date.now();
     try {
-      const res = await fetch("/api/ama-agent/uat", {
+      const res = await fetch("/api/query/uat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -264,8 +257,8 @@ export default function RunGroupsPage(): React.ReactElement {
               categoryName: String(d.categoryName ?? ""),
               status: String(d.status ?? "unknown"),
               runId: typeof d.runId === "string" ? d.runId : undefined,
-              recordCount:
-                typeof d.recordCount === "number" ? d.recordCount : null,
+              resultRowCount:
+                typeof d.resultRowCount === "number" ? d.resultRowCount : null,
               error: typeof d.error === "string" ? d.error : null,
               durationMs: Number(d.durationMs ?? 0),
             };
@@ -275,6 +268,7 @@ export default function RunGroupsPage(): React.ReactElement {
               completed: prev.completed + (isOk ? 1 : 0),
               failed: prev.failed + (isOk ? 0 : 1),
               durationMs: Date.now() - startedAt,
+              // Keep the latest 100 results in the log panel
               results: [entry, ...prev.results].slice(0, 100),
             };
           }
@@ -320,7 +314,7 @@ export default function RunGroupsPage(): React.ReactElement {
     });
   };
 
-  // Top suggestions for the typeahead
+  // Top typeahead suggestions
   const suggestions = useMemo(() => {
     if (!search.trim()) return [];
     return groups.slice(0, 8);
@@ -339,14 +333,14 @@ export default function RunGroupsPage(): React.ReactElement {
       {/* ── header ─────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <Title level="h2">DB Agent — Run History Groups</Title>
+          <Title level="h2">Query — Run History Groups</Title>
           <Text level="small" color="muted">
             One card per question. Drill in to see every run of that question
             and compare any two side-by-side.
           </Text>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <Link href="/ama-agent/runs">
+          <Link href="/query/runs">
             <Button variant="outline" size="sm">
               <Icon type="History" size="sm" />
               <span className="ml-1.5">Flat list</span>
@@ -369,7 +363,7 @@ export default function RunGroupsPage(): React.ReactElement {
             size="sm"
             onClick={() => setUatOpen((v) => !v)}
             variant={uatOpen ? "default" : "outline"}
-            title={`Run the ${UAT_TOTAL}-question UAT suite against the published DB Agent automation`}
+            title={`Run the ${UAT_TOTAL}-question UAT suite against the published Query automation`}
           >
             <Icon type="FlaskConical" size="sm" />
             <span className="ml-1.5">UAT ({UAT_TOTAL})</span>
@@ -447,10 +441,8 @@ export default function RunGroupsPage(): React.ReactElement {
               </div>
               {uatCategories.size > 0 && (
                 <Text level="xSmall" color="muted" className="mt-1">
-                  {UAT_QUESTIONS.filter((q) =>
-                    uatCategories.has(q.category),
-                  ).length}{" "}
-                  of {UAT_TOTAL} questions selected
+                  {UAT_QUESTIONS.filter((q) => uatCategories.has(q.category)).length} of{" "}
+                  {UAT_TOTAL} questions selected
                 </Text>
               )}
             </div>
@@ -461,7 +453,7 @@ export default function RunGroupsPage(): React.ReactElement {
                 size="sm"
                 onClick={handleRunUat}
                 disabled={uatRunning}
-                title="Run selected UAT questions against the published DB Agent automation"
+                title="Run selected UAT questions against the published SQL Query Generator automation"
               >
                 <Icon type={uatRunning ? "Loader2" : "Play"} size="sm" />
                 <span className="ml-1.5">
@@ -496,7 +488,8 @@ export default function RunGroupsPage(): React.ReactElement {
                 </Button>
               )}
               <Text level="xSmall" color="muted">
-                Uses the <strong>published</strong> automation · concurrency 5
+                Uses the{" "}
+                <strong>published</strong> automation · concurrency 5
               </Text>
             </div>
 
@@ -567,16 +560,13 @@ export default function RunGroupsPage(): React.ReactElement {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                         <span className="font-mono">{r.categoryName}</span>
-                        {r.recordCount != null && (
-                          <span>
-                            {r.recordCount} record
-                            {r.recordCount === 1 ? "" : "s"}
-                          </span>
+                        {r.resultRowCount != null && (
+                          <span>{r.resultRowCount} row{r.resultRowCount === 1 ? "" : "s"}</span>
                         )}
                         <span>{(r.durationMs / 1000).toFixed(1)}s</span>
                         {r.runId && (
                           <Link
-                            href={`/ama-agent/runs/${r.runId}`}
+                            href={`/query/runs/${r.runId}`}
                             className="text-primary hover:underline"
                           >
                             view
@@ -634,8 +624,9 @@ export default function RunGroupsPage(): React.ReactElement {
           <div>
             <Title level="h4">No runs indexed yet</Title>
             <Text level="small" color="muted" className="mt-1">
-              Click <strong>Build index</strong> to scan the DB Agent's history
-              from Kognitos and group every run by its question.
+              Click <strong>Build index</strong> to scan the SQL Query
+              Generator's history from Kognitos and group every run by its
+              question.
             </Text>
           </div>
           <Button onClick={handleBuildIndex} disabled={building} size="sm">
@@ -664,9 +655,7 @@ export default function RunGroupsPage(): React.ReactElement {
             onFocus={() => setShowSuggestions(true)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && suggestions.length > 0) {
-                router.push(
-                  `/ama-agent/run-groups/${suggestions[0].questionId}`,
-                );
+                router.push(`/query/run-groups/${suggestions[0].questionId}`);
                 setShowSuggestions(false);
               } else if (e.key === "Escape") {
                 setShowSuggestions(false);
@@ -681,7 +670,7 @@ export default function RunGroupsPage(): React.ReactElement {
                 <button
                   key={g.questionId}
                   onClick={() => {
-                    router.push(`/ama-agent/run-groups/${g.questionId}`);
+                    router.push(`/query/run-groups/${g.questionId}`);
                     setShowSuggestions(false);
                   }}
                   className="w-full text-left flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors"
@@ -739,7 +728,13 @@ export default function RunGroupsPage(): React.ReactElement {
   );
 }
 
-function GroupCard({ group }: { group: RunGroupSummary }): React.ReactElement {
+/* ─────────────────────────── GroupCard ─────────────────────────────────── */
+
+function GroupCard({
+  group,
+}: {
+  group: QueryRunGroupSummary;
+}): React.ReactElement {
   const direction = trendDirection(group.verdictTrend);
   const directionBadge =
     direction === "improved" ? (
@@ -750,7 +745,7 @@ function GroupCard({ group }: { group: RunGroupSummary }): React.ReactElement {
 
   return (
     <Link
-      href={`/ama-agent/run-groups/${group.questionId}`}
+      href={`/query/run-groups/${group.questionId}`}
       className="block rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all group"
     >
       <div className="flex items-start justify-between gap-4">
@@ -810,9 +805,6 @@ function GroupCard({ group }: { group: RunGroupSummary }): React.ReactElement {
             {group.versionsSeen.length} versions
           </Badge>
         )}
-        {group.databasesUsed.length > 0 && (
-          <Badge variant="secondary">db: {group.databasesUsed.join(", ")}</Badge>
-        )}
         {directionBadge}
         <span className="ml-auto text-xs text-muted-foreground">
           last run {dayjs(group.lastRunAt).fromNow()}
@@ -822,11 +814,11 @@ function GroupCard({ group }: { group: RunGroupSummary }): React.ReactElement {
       <div className="mt-3 pl-12 grid grid-cols-[1fr_auto] gap-4 items-center">
         <div className="flex items-center gap-3">
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground shrink-0">
-            Records
+            Rows
           </span>
-          <TrendSparkline values={group.recordCountTrend} />
+          <TrendSparkline values={group.rowCountTrend} />
           <span className="text-xs text-muted-foreground tabular-nums">
-            {group.recordCountTrend
+            {group.rowCountTrend
               .filter((v): v is number => typeof v === "number")
               .join(" → ")}
           </span>

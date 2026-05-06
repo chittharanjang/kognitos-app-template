@@ -42,11 +42,6 @@ type NavItem = {
 const TOP_ITEMS: NavItem[] = [
   { href: "/ama-agent", label: "DB Agent", icon: "Sparkles", exact: true },
   { href: "/ama-agent/runs", label: "Run History", icon: "History" },
-  {
-    href: "/ama-agent/run-groups",
-    label: "Run History Groups",
-    icon: "Layers3",
-  },
 ];
 
 const TOOLS_ITEMS: NavItem[] = [
