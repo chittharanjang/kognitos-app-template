@@ -34,8 +34,9 @@ type NavItem = {
     | "Database"
     | "BookOpen"
     | "FlaskConical"
-    | "History"
-    | "Layers3";
+  | "History"
+  | "Layers3"
+  | "KeyRound";
   exact?: boolean;
 };
 
@@ -54,6 +55,7 @@ const TOOLS_ITEMS: NavItem[] = [
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
+  { href: "/answer-key", label: "Answer Key", icon: "KeyRound" },
   { href: "/automations", label: "Automations", icon: "Blocks" },
   { href: "/guide", label: "User Guide", icon: "BookOpen" },
 ];

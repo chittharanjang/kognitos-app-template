@@ -104,8 +104,12 @@ interface UatResultEntry {
   status: string;
   runId?: string;
   resultRowCount?: number | null;
+  responseText?: string | null;
   error?: string | null;
   durationMs: number;
+  /** Auto-grading state: undefined = not graded, "grading" = in progress */
+  verdict?: "correct" | "incorrect" | "grading" | "grade_error";
+  gradingReason?: string;
 }
 interface UatProgress {
   total: number;
@@ -191,6 +195,10 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
   const [uatCategories, setUatCategories] = useState<Set<number>>(new Set());
   const uatAbortRef = useRef<AbortController | null>(null);
   const uatLogRef = useRef<HTMLDivElement | null>(null);
+
+  /* bulk auto-grade state */
+  const [autoGrading, setAutoGrading] = useState(false);
+  const [autoGradeProgress, setAutoGradeProgress] = useState<{ done: number; total: number; correct: number; incorrect: number } | null>(null);
 
   /* general */
   const [error, setError] = useState<string | null>(null);
@@ -357,23 +365,49 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       for await (const msg of readSseStream(res)) {
         const d = msg.data as Record<string, unknown>;
-        setUatProgress((prev) => {
-          if (!prev) return prev;
-          if (msg.event === "result") {
-            const entry: UatResultEntry = {
-              question: String(d.question ?? ""), category: Number(d.category ?? 0),
-              categoryName: String(d.categoryName ?? ""), status: String(d.status ?? "unknown"),
-              runId: typeof d.runId === "string" ? d.runId : undefined,
-              resultRowCount: typeof d.resultRowCount === "number" ? d.resultRowCount : null,
-              error: typeof d.error === "string" ? d.error : null, durationMs: Number(d.durationMs ?? 0),
-            };
-            const isOk = entry.status === "completed";
+        if (msg.event === "result") {
+          const entryStatus = String(d.status ?? "unknown");
+          const entry: UatResultEntry = {
+            question: String(d.question ?? ""), category: Number(d.category ?? 0),
+            categoryName: String(d.categoryName ?? ""), status: entryStatus,
+            runId: typeof d.runId === "string" ? d.runId : undefined,
+            resultRowCount: typeof d.resultRowCount === "number" ? d.resultRowCount : null,
+            responseText: typeof d.responseText === "string" ? d.responseText : null,
+            error: typeof d.error === "string" ? d.error : null, durationMs: Number(d.durationMs ?? 0),
+            verdict: entryStatus === "completed" ? "grading" : undefined,
+          };
+          const isOk = entryStatus === "completed";
+          setUatProgress((prev) => {
+            if (!prev) return prev;
             return { ...prev, completed: prev.completed + (isOk ? 1 : 0), failed: prev.failed + (isOk ? 0 : 1), durationMs: Date.now() - startedAt, results: [entry, ...prev.results].slice(0, 100) };
+          });
+          // Auto-grade completed runs
+          if (isOk && entry.runId && entry.responseText) {
+            void (async () => {
+              try {
+                const gr = await fetch("/api/grade-run", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ automationType: "query", runId: entry.runId, questionText: entry.question, runOutput: entry.responseText }),
+                });
+                const gd = (await gr.json()) as { verdict?: string; reasoning?: string };
+                const v = gd.verdict === "correct" ? "correct" : gd.verdict === "incorrect" ? "incorrect" : "grade_error";
+                setUatProgress((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, results: prev.results.map((r) => r.runId === entry.runId ? { ...r, verdict: v, gradingReason: gd.reasoning } : r) };
+                });
+              } catch {
+                setUatProgress((prev) => {
+                  if (!prev) return prev;
+                  return { ...prev, results: prev.results.map((r) => r.runId === entry.runId ? { ...r, verdict: "grade_error" } : r) };
+                });
+              }
+            })();
           }
-          if (msg.event === "done") return { ...prev, done: true, durationMs: Number(d.durationMs ?? Date.now() - startedAt) };
-          return prev;
-        });
-        if (msg.event === "result" && uatLogRef.current) uatLogRef.current.scrollTop = 0;
+          if (uatLogRef.current) uatLogRef.current.scrollTop = 0;
+        } else if (msg.event === "done") {
+          const d2 = msg.data as Record<string, unknown>;
+          setUatProgress((prev) => prev ? { ...prev, done: true, durationMs: Number(d2.durationMs ?? Date.now() - startedAt) } : prev);
+        }
       }
       await refresh();
       setGroupsLoaded(false);
@@ -387,6 +421,50 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
   const toggleUatCategory = (cat: number) => {
     setUatCategories((prev) => { const next = new Set(prev); if (next.has(cat)) next.delete(cat); else next.add(cat); return next; });
   };
+
+  /* ── Bulk auto-grade ──────────────────────────────────────────────────── */
+  const handleAutoGrade = useCallback(async () => {
+    if (autoGrading) return;
+    // Collect runs that have a UAT question, are completed, and not yet auto-graded
+    const candidates = Object.entries(verdicts).filter(([, v]) => {
+      if (!v.question) return false;
+      const inAnswerKey = UAT_QUESTIONS.some((q) => normQ(q.question) === normQ(v.question ?? ""));
+      if (!inAnswerKey) return false;
+      const alreadyGraded = v.notes?.startsWith("[Auto-graded]");
+      return !alreadyGraded;
+    });
+    if (candidates.length === 0) { alert("No ungraded UAT runs found in the current view."); return; }
+    setAutoGrading(true);
+    setAutoGradeProgress({ done: 0, total: candidates.length, correct: 0, incorrect: 0 });
+    const CONCURRENCY = 3;
+    let idx = 0;
+    let correct = 0, incorrect = 0;
+    async function worker() {
+      while (true) {
+        const i = idx++;
+        if (i >= candidates.length) return;
+        const [runId, v] = candidates[i];
+        try {
+          const gr = await fetch("/api/grade-run", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ automationType: "query", runId, questionText: v.question, runOutput: v.answer ?? "" }),
+          });
+          const gd = (await gr.json()) as { verdict?: string; skipped?: boolean };
+          if (!gd.skipped) {
+            if (gd.verdict === "correct") correct++;
+            else if (gd.verdict === "incorrect") incorrect++;
+            setVerdicts((prev) => ({
+              ...prev,
+              [runId]: { ...prev[runId], verdict: gd.verdict === "correct" ? "correct" : "incorrect" },
+            }));
+          }
+        } catch { /* continue */ }
+        setAutoGradeProgress((p) => p ? { ...p, done: p.done + 1, correct, incorrect } : p);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, candidates.length) }, () => worker()));
+    setAutoGrading(false);
+  }, [autoGrading, verdicts]);
 
   /* ── Effects ─────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -487,8 +565,33 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
             <span className="ml-1.5">Run UAT ({UAT_TOTAL})</span>
             {uatRunning && <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-400 animate-pulse" />}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleAutoGrade}
+            disabled={autoGrading}
+            title="Auto-grade all UAT runs in view using the answer key"
+          >
+            <Icon type={autoGrading ? "Loader2" : "Star"} size="sm" />
+            <span className="ml-1.5">
+              {autoGrading && autoGradeProgress
+                ? `Grading ${autoGradeProgress.done}/${autoGradeProgress.total}…`
+                : "Auto-Grade"}
+            </span>
+          </Button>
         </div>
       </div>
+      {/* Auto-grade result banner */}
+      {!autoGrading && autoGradeProgress && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-muted/40 border border-border text-sm">
+          <Icon type="Star" size="sm" className="text-primary shrink-0" />
+          <span>Auto-graded {autoGradeProgress.total} UAT runs:</span>
+          <span className="text-emerald-600 dark:text-emerald-400 font-medium">{autoGradeProgress.correct} correct</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-red-600 dark:text-red-400 font-medium">{autoGradeProgress.incorrect} incorrect</span>
+          <button onClick={() => setAutoGradeProgress(null)} className="ml-auto text-muted-foreground hover:text-foreground"><Icon type="X" size="sm" /></button>
+        </div>
+      )}
 
       {/* ── Alerts ────────────────────────────────────────────────────── */}
       {error && (
@@ -626,7 +729,29 @@ export default function QueryRunsHistoryPage(): React.ReactElement {
                         <span>{(r.durationMs / 1000).toFixed(1)}s</span>
                         {r.runId && <Link href={`/query/runs/${r.runId}`} className="text-primary hover:underline">view</Link>}
                         {r.error && <span className="text-red-500 truncate max-w-xs" title={r.error}>{r.error}</span>}
+                        {/* Auto-grade verdict */}
+                        {r.verdict === "grading" && (
+                          <span className="flex items-center gap-1 text-muted-foreground animate-pulse">
+                            <Icon type="Loader2" size="sm" />grading…
+                          </span>
+                        )}
+                        {r.verdict === "correct" && (
+                          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold" title={r.gradingReason}>
+                            ✓ Correct
+                          </span>
+                        )}
+                        {r.verdict === "incorrect" && (
+                          <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold" title={r.gradingReason}>
+                            ✗ Incorrect
+                          </span>
+                        )}
+                        {r.verdict === "grade_error" && (
+                          <span className="text-yellow-600 dark:text-yellow-400">grade failed</span>
+                        )}
                       </div>
+                      {r.gradingReason && (r.verdict === "incorrect") && (
+                        <div className="text-red-500 dark:text-red-400 mt-0.5 line-clamp-2">{r.gradingReason}</div>
+                      )}
                     </div>
                   </div>
                 ))}
