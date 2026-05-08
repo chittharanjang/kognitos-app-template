@@ -6,6 +6,91 @@
 @import '../node_modules/@kognitos/lattice/dist/fonts.css';
 @source '../node_modules/@kognitos/lattice/dist/**/*.{js}';
 
+/* ── Franklin Templeton — Black & White theme override ──────────────────── */
+/* Replaces Kognitos green/yellow brand with a pure monochrome palette.      */
+/* Status semantics (success/destructive/warning) are intentionally kept.    */
+:root {
+  /* Sharper corners — FT uses tight, corporate radii */
+  --radius: 0.125rem;
+
+  /* Primary action → rich black */
+  --primary: oklch(0.1 0 0);
+  --primary-foreground: oklch(1 0 0);
+
+  /* Button primary */
+  --button-primary: oklch(0.1 0 0);
+
+  /* Ring / focus */
+  --ring: oklch(0.45 0 0);
+
+  /* Sidebar active */
+  --sidebar-primary: oklch(0.1 0 0);
+  --sidebar-primary-foreground: oklch(1 0 0);
+
+  /* Brand ramp — near-black → mid-gray (used by charts & badges) */
+  --brand:     oklch(0.14 0 0);
+  --brand-10:  oklch(0.20 0 0);
+  --brand-15:  oklch(0.26 0 0);
+  --brand-20:  oklch(0.32 0 0);
+  --brand-25:  oklch(0.38 0 0);
+  --brand-30:  oklch(0.44 0 0);
+  --brand-35:  oklch(0.50 0 0);
+  --brand-40:  oklch(0.56 0 0);
+  --brand-45:  oklch(0.62 0 0);
+  --brand-50:  oklch(0.68 0 0);
+  --brand-55:  oklch(0.74 0 0);
+  --brand-60:  oklch(0.80 0 0);
+
+  /* Chart palette — neutral gray scale */
+  --chart-1:  oklch(0.14 0 0);
+  --chart-2:  oklch(0.25 0 0);
+  --chart-3:  oklch(0.38 0 0);
+  --chart-4:  oklch(0.50 0 0);
+  --chart-5:  oklch(0.62 0 0);
+  --chart-6:  oklch(0.70 0 0);
+  --chart-7:  oklch(0.76 0 0);
+  --chart-8:  oklch(0.82 0 0);
+  --chart-9:  oklch(0.88 0 0);
+  --chart-10: oklch(0.93 0 0);
+}
+
+.dark {
+  /* Primary stays white-on-dark for dark mode */
+  --primary: oklch(0.95 0 0);
+  --primary-foreground: oklch(0.1 0 0);
+  --button-primary: oklch(0.92 0 0);
+  --ring: oklch(0.55 0 0);
+
+  --sidebar-primary: oklch(0.95 0 0);
+  --sidebar-primary-foreground: oklch(0.1 0 0);
+
+  /* Brand ramp — light → mid-gray in dark mode */
+  --brand:     oklch(0.95 0 0);
+  --brand-10:  oklch(0.88 0 0);
+  --brand-15:  oklch(0.82 0 0);
+  --brand-20:  oklch(0.76 0 0);
+  --brand-25:  oklch(0.70 0 0);
+  --brand-30:  oklch(0.64 0 0);
+  --brand-35:  oklch(0.58 0 0);
+  --brand-40:  oklch(0.52 0 0);
+  --brand-45:  oklch(0.46 0 0);
+  --brand-50:  oklch(0.40 0 0);
+  --brand-55:  oklch(0.34 0 0);
+  --brand-60:  oklch(0.28 0 0);
+
+  /* Chart palette — light gray scale for dark mode */
+  --chart-1:  oklch(0.95 0 0);
+  --chart-2:  oklch(0.84 0 0);
+  --chart-3:  oklch(0.72 0 0);
+  --chart-4:  oklch(0.60 0 0);
+  --chart-5:  oklch(0.50 0 0);
+  --chart-6:  oklch(0.42 0 0);
+  --chart-7:  oklch(0.36 0 0);
+  --chart-8:  oklch(0.30 0 0);
+  --chart-9:  oklch(0.24 0 0);
+  --chart-10: oklch(0.20 0 0);
+}
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;

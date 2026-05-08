@@ -57,7 +57,9 @@ function summarizeRun(raw: RawRun, automationId: string): QueryRunSummary {
   const runId = raw.name.split("/").pop() ?? raw.name;
   const status = deriveStatus(raw.state);
 
-  const userQueryRaw = raw.user_inputs?.["User Query"];
+  // Support both "user_query" (Updating Version) and legacy "User Query" key.
+  const userQueryRaw =
+    raw.user_inputs?.["user_query"] ?? raw.user_inputs?.["User Query"];
   const question =
     userQueryRaw && typeof userQueryRaw.text === "string"
       ? (userQueryRaw.text as string)

@@ -34,27 +34,27 @@ type NavItem = {
     | "Database"
     | "BookOpen"
     | "FlaskConical"
-  | "History"
-  | "Layers3"
-  | "KeyRound";
+    | "History"
+    | "Layers3"
+    | "KeyRound";
   exact?: boolean;
 };
 
-const TOP_ITEMS: NavItem[] = [
+const DB_AGENT_ITEMS: NavItem[] = [
   { href: "/ama-agent", label: "DB Agent", icon: "Sparkles", exact: true },
   { href: "/ama-agent/runs", label: "Run History", icon: "History" },
 ];
 
-const TOOLS_ITEMS: NavItem[] = [
-  { href: "/query", label: "Query", icon: "Search", exact: true },
+const QUERY_ITEMS: NavItem[] = [
+  { href: "/query", label: "SQL Query Generator", icon: "Search", exact: true },
   { href: "/query/runs", label: "Query Runs", icon: "History" },
+];
+
+const OTHER_ITEMS: NavItem[] = [
   { href: "/chat", label: "Chat", icon: "MessageSquare" },
   { href: "/data", label: "Data", icon: "Table" },
   { href: "/sources", label: "Source Data", icon: "Database" },
   { href: "/test-results", label: "Test Results", icon: "FlaskConical" },
-];
-
-const BOTTOM_ITEMS: NavItem[] = [
   { href: "/answer-key", label: "Answer Key", icon: "KeyRound" },
   { href: "/automations", label: "Automations", icon: "Blocks" },
   { href: "/guide", label: "User Guide", icon: "BookOpen" },
@@ -78,10 +78,51 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
+function NavGroup({
+  label,
+  items,
+  pathname,
+  defaultOpen,
+}: {
+  label: string;
+  items: NavItem[];
+  pathname: string;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState<boolean>(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <SidebarGroup>
+        <SidebarGroupLabel asChild>
+          <CollapsibleTrigger className="flex w-full items-center justify-between cursor-pointer hover:text-foreground transition-colors">
+            <span>{label}</span>
+            <Icon
+              type={open ? "ChevronDown" : "ChevronRight"}
+              size="sm"
+              className="text-muted-foreground transition-transform"
+            />
+          </CollapsibleTrigger>
+        </SidebarGroupLabel>
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {items.map((item) => (
+                <NavLink key={item.href} item={item} pathname={pathname} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
+  );
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
-  const toolsActive = TOOLS_ITEMS.some((i) => isActive(pathname, i));
-  const [toolsOpen, setToolsOpen] = useState<boolean>(toolsActive);
+
+  const dbAgentActive = DB_AGENT_ITEMS.some((i) => isActive(pathname, i));
+  const queryActive = QUERY_ITEMS.some((i) => isActive(pathname, i));
+  const otherActive = OTHER_ITEMS.some((i) => isActive(pathname, i));
 
   return (
     <Sidebar>
@@ -92,41 +133,26 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarMenu>
-          {TOP_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} />
-          ))}
-        </SidebarMenu>
+        <NavGroup
+          label="Query"
+          items={QUERY_ITEMS}
+          pathname={pathname}
+          defaultOpen={queryActive}
+        />
 
-        <Collapsible open={toolsOpen} onOpenChange={setToolsOpen}>
-          <SidebarGroup>
-            <SidebarGroupLabel asChild>
-              <CollapsibleTrigger className="flex w-full items-center justify-between cursor-pointer hover:text-foreground transition-colors">
-                <span>Tools</span>
-                <Icon
-                  type={toolsOpen ? "ChevronDown" : "ChevronRight"}
-                  size="sm"
-                  className="text-muted-foreground transition-transform"
-                />
-              </CollapsibleTrigger>
-            </SidebarGroupLabel>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {TOOLS_ITEMS.map((item) => (
-                    <NavLink key={item.href} item={item} pathname={pathname} />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
+        <NavGroup
+          label="Tools"
+          items={OTHER_ITEMS}
+          pathname={pathname}
+          defaultOpen={false}
+        />
 
-        <SidebarMenu>
-          {BOTTOM_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} />
-          ))}
-        </SidebarMenu>
+        <NavGroup
+          label="DB Agent"
+          items={DB_AGENT_ITEMS}
+          pathname={pathname}
+          defaultOpen={dbAgentActive}
+        />
       </SidebarContent>
 
       <SidebarFooter className="p-3">

@@ -53,7 +53,8 @@ function deriveStatus(state: RawRun["state"]): string {
 
 function summarizeForIndex(raw: RawRun): IndexRow | null {
   const runId = raw.name.split("/").pop() ?? raw.name;
-  const userQuery = raw.user_inputs?.["User Query"];
+  const userQuery =
+    raw.user_inputs?.["user_query"] ?? raw.user_inputs?.["User Query"];
   const question =
     userQuery && typeof userQuery.text === "string"
       ? (userQuery.text as string).trim()

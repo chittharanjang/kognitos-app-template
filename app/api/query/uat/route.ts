@@ -109,7 +109,7 @@ export async function POST(request: Request): Promise<Response> {
 
           const inv = await invokeAutomation(
             automationId,
-            { "User Query": { text: q.question } },
+            { user_query: { text: q.question } },
             UAT_STAGE,
           );
 

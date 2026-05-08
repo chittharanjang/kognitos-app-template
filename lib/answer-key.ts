@@ -117,7 +117,7 @@ export const ANSWER_KEY: AnswerKeyEntry[] = [
     category: 4,
     categoryName: "Yes/No — Account Presence",
     answerText:
-      "YES — 8 active clients with at least one open account (PROFILE_STATUS = ACTIVE): F1005 Priya Nair, F1006 Michael Brown, F1007 Emily Davis, F1008 David Wilson, F1010 Liam Johnson, F1012 Olivia Martin, F1025 Amit Sharma, F1027 Neha Verma.",
+      "YES — 10 active clients with at least one open account (PROFILE_STATUS = ACTIVE per MSSQL): F1006 Michael Brown, F1008 David Wilson, F1011 Aarav Sharma, F1013 Ethan Moore, F1014 Aisha Khan, F1016 Mia Thomas, F1020 Benjamin Clark, F1022 Elijah Young, F1025 Amit Sharma, F1027 Neha Verma. Note: F1005 (DEACTIVATED), F1007 (DEACTIVATED), F1010 (DEACTIVATED), F1012 (INACTIVE) are excluded — their MSSQL status is not ACTIVE.",
   },
   {
     questionNumber: 12,

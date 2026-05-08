@@ -549,12 +549,6 @@ export default function RunsHistoryPage(): React.ReactElement {
             <Icon type="RefreshCw" size="sm" />
             <span className="ml-1.5">Refresh</span>
           </Button>
-          {questionCount !== null && questionCount > 0 && (
-            <Button variant="outline" size="sm" onClick={() => setConfirmOpen(true)} disabled={testing}>
-              <Icon type="FlaskConical" size="sm" />
-              <span className="ml-1.5">{testing ? "Running…" : `Run Tests (${questionCount})`}</span>
-            </Button>
-          )}
           <Button
             size="sm"
             onClick={() => setUatOpen((v) => !v)}

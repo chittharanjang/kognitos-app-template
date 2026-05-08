@@ -258,7 +258,7 @@ export default function QueryPage() {
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2.5">
-              <Title level="h3">Query Assistant</Title>
+              <Title level="h3">SQL Query Generator</Title>
               {activeCount > 0 && (
                 <Badge variant="secondary">
                   {activeCount} running
@@ -460,7 +460,6 @@ function LoadingIndicator({ entry }: { entry: ChatEntry }) {
 }
 
 function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number }) {
-  const [showSql, setShowSql] = useState(false);
   const [showTable, setShowTable] = useState(false);
 
   return (
@@ -494,41 +493,6 @@ function ResultCard({ result, elapsed }: { result: QueryResult; elapsed: number 
           )}
         </div>
 
-        {result.appliedWhereClauses &&
-          result.appliedWhereClauses.length > 0 &&
-          result.appliedWhereClauses[0] !== "(no filter)" && (
-            <div className="rounded-xl border border-border px-4 py-3 space-y-1 shadow-sm">
-              <Text level="xSmall" className="font-medium">
-                Applied Filters
-              </Text>
-              {result.appliedWhereClauses.map((clause, i) => (
-                <Text key={i} level="xSmall" color="muted" className="font-mono">
-                  {clause}
-                </Text>
-              ))}
-            </div>
-          )}
-
-        {result.generatedSql && (
-          <div className="rounded-xl border border-border overflow-hidden shadow-sm">
-            <button
-              onClick={() => setShowSql(!showSql)}
-              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
-            >
-              <Text level="xSmall" className="font-medium">
-                Generated SQL
-              </Text>
-              <Icon type={showSql ? "ChevronUp" : "ChevronDown"} size="sm" className="text-muted-foreground" />
-            </button>
-            {showSql && (
-              <div className="px-4 py-3 border-t border-border bg-muted/20">
-                <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
-                  {result.generatedSql}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
 
         {result.tableData && result.tableData.length > 0 && (
           <div className="rounded-xl border border-border overflow-hidden shadow-sm">

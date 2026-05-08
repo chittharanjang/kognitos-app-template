@@ -1,10 +1,11 @@
 import { req, ORG_ID, WORKSPACE_ID } from "@/lib/kognitos";
 import { NextResponse } from "next/server";
 import { getAmaAgentAutomationId } from "@/lib/ama-agent";
+import { getSqlQueryGeneratorAutomationId } from "@/lib/query-assistant";
 
 const TARGET_AUTOMATION_IDS = [
-  "7NMPU5tknPoocOFoLfRss", // SQL Query Generator
-  getAmaAgentAutomationId(), // AMAAgent
+  getSqlQueryGeneratorAutomationId(), // SQL Query Generator (resolves from env)
+  getAmaAgentAutomationId(),          // AMAAgent
 ];
 
 export const dynamic = "force-dynamic";

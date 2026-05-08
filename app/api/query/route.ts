@@ -12,7 +12,7 @@ export async function POST(request: Request) {
 
   const { runId, error: invokeError } = await invokeAutomation(
     getSqlQueryGeneratorAutomationId(),
-    { "User Query": { text: query.trim() } },
+    { user_query: { text: query.trim() } },
     QUERY_ASSISTANT_STAGE,
   );
 

@@ -183,7 +183,11 @@ const AMA_AGENT_SOP: AutomationSopProfile = {
 export function getAutomationSop(
   automationId: string,
 ): AutomationSopProfile | null {
-  if (automationId === "7NMPU5tknPoocOFoLfRss") return SQL_QUERY_GENERATOR_SOP;
+  if (
+    automationId === "7NMPU5tknPoocOFoLfRss" ||
+    automationId === "HKk8dAUxXhsVqeRC4fvaT"
+  )
+    return SQL_QUERY_GENERATOR_SOP;
   if (automationId === "mC3GaXQfTaca9mVUSziGW") return AMA_AGENT_SOP;
   return null;
 }

@@ -23,7 +23,7 @@ const HARD_RUN_CAP = 5000;
 const PAGE_SIZE = 100;
 
 function extractQuestion(run: RawRun): string | null {
-  const uq = run.user_inputs?.["User Query"];
+  const uq = run.user_inputs?.["user_query"] ?? run.user_inputs?.["User Query"];
   if (!uq) return null;
   const text = uq.text;
   if (typeof text !== "string") return null;

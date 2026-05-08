@@ -115,11 +115,10 @@ export async function POST(request: Request): Promise<Response> {
           const question = questions[idx];
           const t0 = Date.now();
 
-          // SQL Query Generator only takes a single `User Query` input —
-          // no requester email field, unlike the DB Agent automation.
+          // SQL Query Generator takes a single `user_query` input.
           const inv = await invokeAutomation(
             automationId,
-            { "User Query": { text: question } },
+            { user_query: { text: question } },
             TEST_BUTTON_STAGE,
           );
           if (!inv.runId) {

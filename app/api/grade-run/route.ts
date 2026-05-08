@@ -42,6 +42,8 @@ interface GradeBody {
   questionText: string;
   runOutput: string;
   force?: boolean;
+  /** Optional test session label, e.g. "UAT 2026-05-06 15:38". Prepended to the notes. */
+  testId?: string;
 }
 
 export async function POST(request: Request) {
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { automationType, runId, questionText, runOutput, force = false } = body;
+  const { automationType, runId, questionText, runOutput, force = false, testId } = body;
 
   if (!automationType || !runId || !questionText) {
     return NextResponse.json(
@@ -157,7 +159,8 @@ Respond with a JSON object ONLY (no markdown, no explanation outside the JSON):
     );
   }
 
-  const notes = `[Auto-graded] ${reasoning}`;
+  const testIdPrefix = testId?.trim() ? `[${testId.trim()}] ` : "";
+  const notes = `${testIdPrefix}[Auto-graded] ${reasoning}`;
 
   // Upsert verdict into Supabase (manual verdicts are never overwritten here
   // because we checked above; force=true skips that check)
