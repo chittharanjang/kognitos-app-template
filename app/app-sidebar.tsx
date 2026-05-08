@@ -120,9 +120,6 @@ function NavGroup({
 export function AppSidebar() {
   const pathname = usePathname();
 
-  const dbAgentActive = DB_AGENT_ITEMS.some((i) => isActive(pathname, i));
-  const queryActive = QUERY_ITEMS.some((i) => isActive(pathname, i));
-  const otherActive = OTHER_ITEMS.some((i) => isActive(pathname, i));
 
   return (
     <Sidebar>
@@ -137,7 +134,7 @@ export function AppSidebar() {
           label="Query"
           items={QUERY_ITEMS}
           pathname={pathname}
-          defaultOpen={queryActive}
+          defaultOpen={true}
         />
 
         <NavGroup
@@ -151,7 +148,7 @@ export function AppSidebar() {
           label="DB Agent"
           items={DB_AGENT_ITEMS}
           pathname={pathname}
-          defaultOpen={dbAgentActive}
+          defaultOpen={false}
         />
       </SidebarContent>
 
