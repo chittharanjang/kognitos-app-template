@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@chat-adapter/state-pg": "^4.29.0",
+    "@chat-adapter/teams": "^4.29.0",
     "@kognitos/lattice": "file:kognitos-lattice-1.18.0.tgz",
     "@supabase/supabase-js": "^2.49.4",
     "@tailwindcss/typography": "^0.5.16",
     "apache-arrow": "^21.1.0",
+    "chat": "^4.29.0",
     "dayjs": "^1.11.13",
     "dotenv": "^17.3.1",
     "next": "^15.3.0",

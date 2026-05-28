@@ -102,6 +102,10 @@ Run `npm install` and verify with `npm ls react` -- every entry should say `dedu
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client-side) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side) |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+| `TEAMS_APP_ID` | Microsoft Teams bot app ID (Teams bot only) |
+| `TEAMS_APP_PASSWORD` | Teams bot client secret (Teams bot only) |
+| `TEAMS_APP_TENANT_ID` | Azure AD tenant ID — single-tenant bots only |
+| `POSTGRES_URL` | Postgres connection string for Teams bot state |
 
 ## Cursor AI Rules
 
@@ -126,3 +130,42 @@ Each phase has a gate requiring user confirmation before proceeding.
 - **apache-arrow** for Arrow IPC decoding
 - **Claude** (Anthropic SDK) for AI chat with Kognitos API tool calling
 - **Supabase** for chat session and message persistence
+- **Vercel Chat SDK** (`chat` + `@chat-adapter/teams`) for the Microsoft Teams bot
+
+## Microsoft Teams bot
+
+The same Claude + SQL reasoning that powers the in-app `/chat` is exposed as a
+Microsoft Teams bot. Users can DM the bot or @-mention it in a channel and ask
+questions about clients and accounts in plain English.
+
+**How it's wired:**
+
+- `lib/chat/answer-engine.ts` — reusable streaming answer engine (Claude + SQL
+  tools) shared by the web chat and the bot.
+- `lib/bot.ts` — Chat SDK instance: Teams adapter + Postgres state, with DM,
+  mention, and follow-up handlers. Per-thread history gives multi-turn context.
+- `app/api/webhooks/teams/route.ts` — Bot Framework messaging endpoint.
+- `teams/manifest.json` — Teams app manifest (sideload/Developer Portal).
+
+**Setup:**
+
+1. **Create the bot identity.** In the [Azure Portal](https://portal.azure.com)
+   create an **Azure Bot** resource (or an app registration + Bot Framework
+   registration). Note the **App ID** and create a **client secret**. Set
+   `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and (single-tenant only)
+   `TEAMS_APP_TENANT_ID` in `.env`.
+2. **Provide bot state storage.** Set `POSTGRES_URL` to a Postgres connection
+   string. Locally this is the Supabase `DB_URL` from `supabase status`; in
+   production use your Supabase connection-pooler URL. The Chat SDK auto-creates
+   its own tables for subscriptions, locks, dedupe, and thread history.
+3. **Deploy** the app to a public HTTPS URL (Vercel). In the Azure Bot's
+   **Configuration**, set the **Messaging endpoint** to
+   `https://<your-domain>/api/webhooks/teams`, and enable the **Microsoft Teams**
+   channel.
+4. **Package + install in Teams.** Add two icons (`color.png` 192×192 and
+   `outline.png` 32×32) next to `teams/manifest.json`, replace `${{TEAMS_APP_ID}}`
+   with your App ID and `${{BOT_DOMAIN}}` with your domain, zip the three files,
+   and upload via Teams **Apps → Manage your apps → Upload a custom app** (or the
+   [Developer Portal](https://dev.teams.microsoft.com)).
+
+Streaming is native in Teams DMs; channel replies post as a single message.

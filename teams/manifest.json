@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "${{TEAMS_APP_ID}}",
+  "packageName": "com.kognitos.sqlqueryassistant",
+  "developer": {
+    "name": "Kognitos",
+    "websiteUrl": "https://www.kognitos.com",
+    "privacyUrl": "https://www.kognitos.com/privacy",
+    "termsOfUseUrl": "https://www.kognitos.com/terms"
+  },
+  "name": {
+    "short": "SQL Query Assistant",
+    "full": "SQL Query Assistant"
+  },
+  "description": {
+    "short": "Ask questions about client and account data in plain English.",
+    "full": "Chat with the SQL Query Assistant to answer questions about clients, accounts, addresses, and profile status. Powered by Kognitos."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#1F1F1F",
+  "bots": [
+    {
+      "botId": "${{TEAMS_APP_ID}}",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "team", "groupChat"],
+          "commands": [
+            {
+              "title": "How many open accounts are there?",
+              "description": "Ask about counts, breakdowns, or details of clients and accounts"
+            },
+            {
+              "title": "List clients without portal access",
+              "description": "Query client and account data in plain English"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["${{BOT_DOMAIN}}"]
+}
